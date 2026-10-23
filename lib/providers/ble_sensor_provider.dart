@@ -26,8 +26,6 @@ class BleSensorProvider extends ChangeNotifier {
   int? _heartRateBpm;
   DateTime _lastTelemetryTime = DateTime.now();
 
-  DateTime get lastTelemetryTime => _lastTelemetryTime;
-
   // ─── CHANGEMENT DE BRAQUET VIRTUEL (ZWIFT COG) ──────────────────────────────
   final VirtualShifter _virtualShifter = VirtualShifter();
 
@@ -38,16 +36,18 @@ class BleSensorProvider extends ChangeNotifier {
   // ─── PARAMÈTRES DE CONTRÔLE ─────────────────────────────────────────────────
   int _targetPowerWatts = 0;
   double _simulatedSlopePercent = 0.0;
+  int _directResistancePercent = 35; // Résistance de départ équilibrée
   bool _isControllingResistance = false;
 
   // ─── CONSOLE DE LOGS EN DIRECT ──────────────────────────────────────────────
   final List<String> _logs = [];
+  bool _isDisposed = false;
 
   BleSensorProvider() {
     _safetyLimiter = SafetyLimiter(
       maxPowerCeilingWatts: 450,
       onSafeCommandCalculated: (safeWatts) {
-        if (_ftmsController != null && _ftmsController!.hasControl) {
+        if (_ftmsController != null && _targetPowerWatts > 0) {
           _ftmsController!.setTargetPower(safeWatts);
         }
       },
@@ -68,6 +68,7 @@ class BleSensorProvider extends ChangeNotifier {
   double get cadenceRpm => _cadenceRpm;
   double get speedKmh => _speedKmh;
   int? get heartRateBpm => _heartRateBpm;
+  DateTime get lastTelemetryTime => _lastTelemetryTime;
   int get currentVirtualGear => _virtualShifter.currentGear;
   int get totalVirtualGears => VirtualShifter.totalGears;
   double get currentGearRatio => _virtualShifter.currentRatio;
@@ -75,10 +76,9 @@ class BleSensorProvider extends ChangeNotifier {
   bool get hasTrainerControl => _ftmsController?.hasControl ?? false;
   int get targetPowerWatts => _targetPowerWatts;
   double get simulatedSlopePercent => _simulatedSlopePercent;
+  int get directResistancePercent => _directResistancePercent;
   bool get isControllingResistance => _isControllingResistance;
   List<String> get logs => List.unmodifiable(_logs);
-
-  bool _isDisposed = false;
 
   void addLog(String message) {
     if (_isDisposed) return;
@@ -147,6 +147,11 @@ class BleSensorProvider extends ChangeNotifier {
       );
 
       final success = await _ftmsController!.initialize();
+      if (success) {
+        _isControllingResistance = true;
+        // Appliquer immédiatement la résistance correspondant au braquet de départ
+        await _applyGearResistance();
+      }
       notifyListeners();
       return success;
     } catch (e) {
@@ -202,21 +207,22 @@ class BleSensorProvider extends ChangeNotifier {
     }
   }
 
-  void setTargetPower(int watts) {
-    _targetPowerWatts = watts;
-    _safetyLimiter.setTargetPower(watts);
-    notifyListeners();
-    addLog("⚡ Consigne puissance demandée : $watts W (Rampe max 20W/s)");
-  }
+  /// Application de la résistance physique du braquet virtuel
+  Future<void> _applyGearResistance() async {
+    if (_ftmsController == null) return;
 
-  Future<void> setSimulatedSlope(double slopePercent) async {
-    _simulatedSlopePercent = slopePercent;
-    if (_ftmsController != null && _ftmsController!.hasControl) {
-      // Calcul de la pente apparente selon le rapport virtuel engagé (Zwift Cog)
-      final apparentSlope = _virtualShifter.computeApparentSlope(slopePercent);
+    if (_simulatedSlopePercent != 0.0) {
+      // Si une pente est active, la démultiplication ajuste la pente apparente
+      final apparentSlope = _virtualShifter.computeApparentSlope(_simulatedSlopePercent);
       await _ftmsController!.setSimulationSlope(slopePercent: apparentSlope);
-      addLog("⛰️ Pente simulée : $slopePercent% (Apparente: ${apparentSlope.toStringAsFixed(1)}%)");
-      notifyListeners();
+    } else {
+      // En mode libre / plat, chaque vitesse ajuste directement le niveau de frein
+      // Vitesse 1 = 12% (très souple) -> Vitesse 12 = 45% -> Vitesse 24 = 92% (très dur)
+      final gear = _virtualShifter.currentGear;
+      final percent = ((gear - 1) * 3.5 + 12).round().clamp(10, 95);
+      _directResistancePercent = percent;
+      await _ftmsController!.setTargetResistance(percent);
+      addLog("⚙️ Zwift Cog : Vitesse $gear/24 -> Frein appliqué : $percent%");
     }
   }
 
@@ -224,10 +230,7 @@ class BleSensorProvider extends ChangeNotifier {
   void shiftUp() {
     if (_virtualShifter.shiftUp()) {
       addLog("⚙️ Vitesse augmentée : ${_virtualShifter.currentGear}/24 (Ratio: ${_virtualShifter.currentRatio.toStringAsFixed(2)})");
-      // Si en mode simulation de pente, on réapplique immédiatement la nouvelle résistance
-      if (_simulatedSlopePercent != 0.0) {
-        setSimulatedSlope(_simulatedSlopePercent);
-      }
+      _applyGearResistance();
       notifyListeners();
     }
   }
@@ -235,11 +238,41 @@ class BleSensorProvider extends ChangeNotifier {
   void shiftDown() {
     if (_virtualShifter.shiftDown()) {
       addLog("⚙️ Vitesse descendue : ${_virtualShifter.currentGear}/24 (Ratio: ${_virtualShifter.currentRatio.toStringAsFixed(2)})");
-      if (_simulatedSlopePercent != 0.0) {
-        setSimulatedSlope(_simulatedSlopePercent);
-      }
+      _applyGearResistance();
       notifyListeners();
     }
+  }
+
+  // ─── MODES DE RÉSISTANCE EXPLICITES ─────────────────────────────────────────
+
+  /// Mode Direct : Forcer un pourcentage de frein spécifique (20%, 40%, 60%, 80%)
+  Future<void> setDirectResistance(int percent) async {
+    _targetPowerWatts = 0;
+    _simulatedSlopePercent = 0.0;
+    _directResistancePercent = percent;
+    if (_ftmsController != null) {
+      await _ftmsController!.setTargetResistance(percent);
+      addLog("🎚️ Résistance directe imposée : $percent%");
+      notifyListeners();
+    }
+  }
+
+  /// Mode ERG : Puissance cible imposée
+  void setTargetPower(int watts) {
+    _simulatedSlopePercent = 0.0;
+    _targetPowerWatts = watts;
+    _safetyLimiter.setTargetPower(watts);
+    notifyListeners();
+    addLog("⚡ Mode ERG activé : consigne $watts W (Rampe max 20W/s)");
+  }
+
+  /// Mode Pente : Simulation d'un col
+  Future<void> setSimulatedSlope(double slopePercent) async {
+    _targetPowerWatts = 0;
+    _simulatedSlopePercent = slopePercent;
+    await _applyGearResistance();
+    addLog("⛰️ Mode Pente activé : $slopePercent%");
+    notifyListeners();
   }
 
   // ─── ARRÊT D'URGENCE 1-TAP ──────────────────────────────────────────────────
@@ -247,6 +280,7 @@ class BleSensorProvider extends ChangeNotifier {
     _safetyLimiter.triggerEmergencyStop();
     _ftmsController?.resetTrainer();
     _targetPowerWatts = 0;
+    _simulatedSlopePercent = 0.0;
     addLog("🛑 ARRÊT D'URGENCE DÉCLENCHÉ ! Trainer débrayé en roue libre.");
     notifyListeners();
   }

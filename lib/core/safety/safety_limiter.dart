@@ -13,6 +13,9 @@ class SafetyLimiter {
   /// Puissance cible demandée par l'entraînement ou l'utilisateur
   int _targetWatts = 0;
 
+  /// Dernière valeur envoyée pour éviter d'inonder le bus BLE
+  int _lastEmittedWatts = -1;
+
   /// Horodatage de la dernière mise à jour
   DateTime _lastUpdateTime = DateTime.now();
 
@@ -31,7 +34,7 @@ class SafetyLimiter {
   int get currentAppliedWatts => _currentAppliedWatts.round();
   int get targetWatts => _targetWatts;
 
-  /// Définir une nouvelle consigne de puissance (Mode ERG ou pente)
+  /// Définir une nouvelle consigne de puissance (Mode ERG)
   void setTargetPower(int requestedWatts) {
     if (_isEmergencyStopped) return;
 
@@ -47,11 +50,14 @@ class SafetyLimiter {
     _targetWatts = clampedWatts;
   }
 
-  /// Exécuté à intervalle régulier (ex: chaque 200ms) pour faire progresser la rampe
+  /// Exécuté à intervalle régulier pour faire progresser la rampe en douceur
   void tick() {
     if (_isEmergencyStopped) {
-      _currentAppliedWatts = 0;
-      onSafeCommandCalculated(0);
+      if (_lastEmittedWatts != 0) {
+        _currentAppliedWatts = 0;
+        _lastEmittedWatts = 0;
+        onSafeCommandCalculated(0);
+      }
       return;
     }
 
@@ -70,7 +76,6 @@ class SafetyLimiter {
         _currentAppliedWatts = _targetWatts.toDouble();
       }
     } else if (_currentAppliedWatts > _targetWatts) {
-      // Pour la descente, on autorise une baisse un peu plus rapide pour soulager le coureur
       final maxDecreaseDelta = maxWattsPerSecond * 1.5 * elapsedSeconds;
       _currentAppliedWatts -= maxDecreaseDelta;
       if (_currentAppliedWatts < _targetWatts) {
@@ -78,7 +83,12 @@ class SafetyLimiter {
       }
     }
 
-    onSafeCommandCalculated(_currentAppliedWatts.round());
+    final rounded = _currentAppliedWatts.round();
+    // On n'émet que si la valeur a changé et si une cible est active (> 0 ou passée à 0)
+    if (rounded != _lastEmittedWatts && (_targetWatts > 0 || rounded == 0)) {
+      _lastEmittedWatts = rounded;
+      onSafeCommandCalculated(rounded);
+    }
   }
 
   /// Déclenchement de l'arrêt d'urgence 1-tap
@@ -86,6 +96,7 @@ class SafetyLimiter {
     _isEmergencyStopped = true;
     _targetWatts = 0;
     _currentAppliedWatts = 0.0;
+    _lastEmittedWatts = 0;
     onSafeCommandCalculated(0);
   }
 
@@ -94,7 +105,7 @@ class SafetyLimiter {
     _isEmergencyStopped = false;
     _targetWatts = 0;
     _currentAppliedWatts = 0.0;
+    _lastEmittedWatts = -1;
     _lastUpdateTime = DateTime.now();
-    onSafeCommandCalculated(0);
   }
 }

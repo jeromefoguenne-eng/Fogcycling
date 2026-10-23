@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'ble_uuids.dart';
@@ -8,6 +9,19 @@ enum TrainerControlMode {
   readOnly,
   targetPowerErg,
   simulationSlope,
+  targetResistance,
+}
+
+class _QueuedWrite {
+  final List<int> bytes;
+  final String description;
+  final Completer<bool> completer;
+
+  _QueuedWrite({
+    required this.bytes,
+    required this.description,
+    required this.completer,
+  });
 }
 
 class FtmsController {
@@ -19,12 +33,17 @@ class FtmsController {
 
   StreamSubscription<List<int>>? _telemetrySub;
   StreamSubscription<List<int>>? _powerSub;
+  StreamSubscription<List<int>>? _controlPointSub;
 
   final void Function(TrainerTelemetry telemetry) onTelemetryReceived;
   final void Function(String log) onLog;
 
   bool _hasControl = false;
   TrainerControlMode _currentMode = TrainerControlMode.readOnly;
+
+  // File d'attente pour sérialiser les écritures GATT (évite les collisions BLE)
+  final Queue<_QueuedWrite> _writeQueue = Queue<_QueuedWrite>();
+  bool _isProcessingQueue = false;
 
   FtmsController({
     required this.device,
@@ -72,26 +91,43 @@ class FtmsController {
         }
       }
 
-      // Souscription aux notifications de télémétrie
+      // Souscription aux notifications de télémétrie (Watts, RPM, Vitesse)
       if (_indoorBikeDataChar != null) {
         await _indoorBikeDataChar!.setNotifyValue(true);
         _telemetrySub = _indoorBikeDataChar!.onValueReceived.listen((bytes) {
           final telemetry = FtmsDataParser.parseIndoorBikeData(bytes);
           onTelemetryReceived(telemetry);
         });
-        onLog("📡 Abonnement aux données FTMS actif");
-        return true;
+        onLog("📡 Télémétrie FTMS active (Indoor Bike Data)");
       } else if (_cyclingPowerChar != null) {
         await _cyclingPowerChar!.setNotifyValue(true);
         _powerSub = _cyclingPowerChar!.onValueReceived.listen((bytes) {
           final telemetry = FtmsDataParser.parseCyclingPowerMeasurement(bytes);
           onTelemetryReceived(telemetry);
         });
-        onLog("📡 Abonnement de repli aux données CPS actif");
+        onLog("📡 Télémétrie CPS de repli active");
+      }
+
+      // ⚠️ ÉTAPE CRUCIALE POUR LE CONTRÔLE DE RÉSISTANCE :
+      // Activer les indications sur le Control Point (0x2AD9)
+      if (_controlPointChar != null) {
+        try {
+          await _controlPointChar!.setNotifyValue(true);
+          _controlPointSub = _controlPointChar!.onValueReceived.listen((bytes) {
+            _handleControlPointResponse(bytes);
+          });
+          onLog("🔔 Indications activées sur Control Point (0x2AD9)");
+
+          // Prise de contrôle automatique immédiate
+          await Future.delayed(const Duration(milliseconds: 300));
+          await requestControl();
+        } catch (e) {
+          onLog("⚠️ Erreur configuration Control Point : $e");
+        }
         return true;
       } else {
-        onLog("⚠️ Aucun flux de puissance standard (FTMS ou CPS) n'a été trouvé.");
-        return false;
+        onLog("⚠️ Ce trainer ne propose pas de caractéristique Control Point.");
+        return _indoorBikeDataChar != null;
       }
     } catch (e) {
       onLog("❌ Erreur lors de l'initialisation FTMS : $e");
@@ -99,45 +135,121 @@ class FtmsController {
     }
   }
 
-  /// Prise de contrôle de la machine (Opcode 0x00 : Request Control)
-  /// Requis par le standard FTMS avant de pouvoir régler la résistance
-  Future<bool> requestControl() async {
-    if (_controlPointChar == null) {
-      onLog("⚠️ Control Point non disponible sur cet appareil");
-      return false;
+  /// Traitement des réponses retournées par le Control Point (0x80 ...)
+  void _handleControlPointResponse(List<int> bytes) {
+    if (bytes.length < 3) return;
+    if (bytes[0] == 0x80) {
+      final reqOpcode = bytes[1];
+      final resCode = bytes[2];
+      final resName = _decodeResultCode(resCode);
+
+      onLog("📩 Réponse Trainer [Req: 0x${reqOpcode.toRadixString(16)}, Résultat: $resName]");
+
+      if (reqOpcode == 0x00 && resCode == 0x01) {
+        _hasControl = true;
+        onLog("🎉 Prise de contrôle confirmée par le Zwift Hub !");
+      }
+    }
+  }
+
+  String _decodeResultCode(int code) {
+    switch (code) {
+      case 0x01: return "Succès (0x01)";
+      case 0x02: return "Opcode non supporté (0x02)";
+      case 0x03: return "Paramètre invalide (0x03)";
+      case 0x04: return "Échec de l'opération (0x04)";
+      case 0x05: return "Contrôle non autorisé (0x05)";
+      default: return "Code inconnu (0x${code.toRadixString(16)})";
+    }
+  }
+
+  /// Sérialisation des écritures GATT (FIFO thread-safe)
+  Future<bool> _enqueueWrite(List<int> bytes, String description) {
+    final completer = Completer<bool>();
+    _writeQueue.add(_QueuedWrite(
+      bytes: bytes,
+      description: description,
+      completer: completer,
+    ));
+
+    _processQueue();
+    return completer.future;
+  }
+
+  Future<void> _processQueue() async {
+    if (_isProcessingQueue || _writeQueue.isEmpty) return;
+    _isProcessingQueue = true;
+
+    while (_writeQueue.isNotEmpty) {
+      final writeItem = _writeQueue.removeFirst();
+      if (_controlPointChar == null) {
+        writeItem.completer.complete(false);
+        continue;
+      }
+
+      try {
+        await _controlPointChar!.write(writeItem.bytes, withoutResponse: false);
+        writeItem.completer.complete(true);
+      } catch (e) {
+        // En cas d'échec avec réponse, tentative de repli en write without response
+        try {
+          await _controlPointChar!.write(writeItem.bytes, withoutResponse: true);
+          writeItem.completer.complete(true);
+        } catch (e2) {
+          onLog("⚠️ Échec d'écriture (${writeItem.description}) : $e2");
+          writeItem.completer.complete(false);
+        }
+      }
+
+      // Pause de 50ms entre deux trames GATT pour laisser respirer le contrôleur Bluetooth
+      await Future.delayed(const Duration(milliseconds: 50));
     }
 
-    try {
-      onLog("🔒 Envoi de la requête de prise de contrôle (Opcode 0x00)...");
-      // Opcode 0x00 = Request Control
-      await _controlPointChar!.write([0x00], withoutResponse: false);
+    _isProcessingQueue = false;
+  }
+
+  /// Prise de contrôle de la machine (Opcode 0x00 : Request Control)
+  Future<bool> requestControl() async {
+    if (_controlPointChar == null) return false;
+    onLog("🔒 Envoi Request Control (Opcode 0x00)...");
+    final success = await _enqueueWrite([0x00], "Request Control");
+    if (success) {
       _hasControl = true;
-      onLog("✅ Contrôle accordé par le Smart Trainer !");
-      return true;
-    } catch (e) {
-      onLog("❌ Échec de prise de contrôle : $e");
-      _hasControl = false;
-      return false;
     }
+    return success;
+  }
+
+  /// Réglage Direct du Niveau de Résistance (Opcode 0x04 : Set Target Resistance)
+  /// Valeur en pourcentage (0 à 100%)
+  Future<bool> setTargetResistance(int percent) async {
+    if (_controlPointChar == null) return false;
+
+    // Normalisation : la plupart des trainers FTMS acceptent le niveau de 0.1 ou 1 unité
+    final clampedPercent = percent.clamp(0, 100);
+    final resistanceUnit = clampedPercent; // 0..100
+
+    final buffer = [0x04, resistanceUnit];
+    final success = await _enqueueWrite(buffer, "Set Target Resistance $clampedPercent%");
+    if (success) {
+      _currentMode = TrainerControlMode.targetResistance;
+    }
+    return success;
   }
 
   /// Réglage de la Puissance Cible en Mode ERG (Opcode 0x05 : Set Target Power)
   /// Paramètre : targetWatts (sint16 en Watts)
   Future<bool> setTargetPower(int targetWatts) async {
-    if (_controlPointChar == null || !_hasControl) return false;
+    if (_controlPointChar == null) return false;
 
-    try {
-      final buffer = ByteData(3);
-      buffer.setUint8(0, 0x05); // Opcode 0x05 : Set Target Power
-      buffer.setInt16(1, targetWatts, Endian.little); // Puissance en watts
+    final buffer = ByteData(3);
+    buffer.setUint8(0, 0x05); // Opcode 0x05 : Set Target Power
+    buffer.setInt16(1, targetWatts, Endian.little); // Puissance en watts
 
-      await _controlPointChar!.write(buffer.buffer.asUint8List(), withoutResponse: false);
+    final success = await _enqueueWrite(buffer.buffer.asUint8List(), "Set Target Power $targetWatts W");
+    if (success) {
       _currentMode = TrainerControlMode.targetPowerErg;
-      return true;
-    } catch (e) {
-      onLog("⚠️ Erreur lors de l'envoi de la puissance cible ($targetWatts W) : $e");
-      return false;
     }
+    return success;
   }
 
   /// Réglage des Paramètres de Simulation de Pente (Opcode 0x11)
@@ -148,51 +260,46 @@ class FtmsController {
     double crr = 0.004,
     double cda = 0.32,
   }) async {
-    if (_controlPointChar == null || !_hasControl) return false;
+    if (_controlPointChar == null) return false;
 
-    try {
-      final buffer = ByteData(7);
-      buffer.setUint8(0, 0x11); // Opcode 0x11 : Set Indoor Bike Simulation Parameters
+    final buffer = ByteData(7);
+    buffer.setUint8(0, 0x11); // Opcode 0x11 : Set Indoor Bike Simulation Parameters
 
-      // Wind speed (sint16, 0.001 m/s)
-      final windMPerS = (windSpeedKmh / 3.6 * 1000).round();
-      buffer.setInt16(1, windMPerS, Endian.little);
+    // Wind speed (sint16, 0.001 m/s)
+    final windMPerS = (windSpeedKmh / 3.6 * 1000).round();
+    buffer.setInt16(1, windMPerS, Endian.little);
 
-      // Grade (sint16, 0.01%)
-      final gradeRaw = (slopePercent * 100).round();
-      buffer.setInt16(3, gradeRaw, Endian.little);
+    // Grade (sint16, 0.01%)
+    final gradeRaw = (slopePercent * 100).round();
+    buffer.setInt16(3, gradeRaw, Endian.little);
 
-      // Crr (uint8, 0.0001)
-      final crrRaw = (crr * 10000).round().clamp(0, 255);
-      buffer.setUint8(5, crrRaw);
+    // Crr (uint8, 0.0001)
+    final crrRaw = (crr * 10000).round().clamp(0, 255);
+    buffer.setUint8(5, crrRaw);
 
-      // Wind Resistance Coefficient / CdA (uint8, 0.01 kg/m)
-      final cdaRaw = (cda * 100).round().clamp(0, 255);
-      buffer.setUint8(6, cdaRaw);
+    // Wind Resistance Coefficient / CdA (uint8, 0.01 kg/m)
+    final cdaRaw = (cda * 100).round().clamp(0, 255);
+    buffer.setUint8(6, cdaRaw);
 
-      await _controlPointChar!.write(buffer.buffer.asUint8List(), withoutResponse: false);
+    final success = await _enqueueWrite(buffer.buffer.asUint8List(), "Set Slope $slopePercent%");
+    if (success) {
       _currentMode = TrainerControlMode.simulationSlope;
-      return true;
-    } catch (e) {
-      onLog("⚠️ Erreur lors de l'envoi de la pente ($slopePercent%) : $e");
-      return false;
     }
+    return success;
   }
 
   /// Remise à zéro / Débrayage d'urgence (Opcode 0x01 : Reset)
   Future<void> resetTrainer() async {
     if (_controlPointChar == null) return;
-    try {
-      await _controlPointChar!.write([0x01], withoutResponse: false);
-      _currentMode = TrainerControlMode.readOnly;
-      onLog("🛑 Smart Trainer réinitialisé (roue libre passive)");
-    } catch (e) {
-      onLog("⚠️ Erreur lors du Reset : $e");
-    }
+    await _enqueueWrite([0x01], "Reset Trainer");
+    _currentMode = TrainerControlMode.readOnly;
+    onLog("🛑 Smart Trainer réinitialisé (roue libre passive)");
   }
 
   void dispose() {
     _telemetrySub?.cancel();
     _powerSub?.cancel();
+    _controlPointSub?.cancel();
+    _writeQueue.clear();
   }
 }

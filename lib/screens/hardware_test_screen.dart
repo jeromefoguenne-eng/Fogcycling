@@ -388,7 +388,21 @@ class _HardwareTestScreenState extends State<HardwareTestScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          const Text("Mode ERG (Watts cibles avec rampe sécurisée max 20W/s) :", style: TextStyle(color: Colors.white70, fontSize: 12)),
+          const Text("1. Frein Direct (Test Immédiat Opcode 0x04) :", style: TextStyle(color: Colors.white70, fontSize: 12)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildDirectResistanceBtn(ble, 20),
+              const SizedBox(width: 8),
+              _buildDirectResistanceBtn(ble, 40),
+              const SizedBox(width: 8),
+              _buildDirectResistanceBtn(ble, 60),
+              const SizedBox(width: 8),
+              _buildDirectResistanceBtn(ble, 80),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Text("2. Mode ERG (Watts cibles avec rampe sécurisée max 20W/s) :", style: TextStyle(color: Colors.white70, fontSize: 12)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -401,8 +415,8 @@ class _HardwareTestScreenState extends State<HardwareTestScreen> {
               _buildPowerTargetBtn(ble, 200),
             ],
           ),
-          const SizedBox(height: 16),
-          const Text("Mode Simulation de Pente :", style: TextStyle(color: Colors.white70, fontSize: 12)),
+          const SizedBox(height: 14),
+          const Text("3. Mode Simulation de Pente :", style: TextStyle(color: Colors.white70, fontSize: 12)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -416,6 +430,22 @@ class _HardwareTestScreenState extends State<HardwareTestScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDirectResistanceBtn(BleSensorProvider ble, int percent) {
+    final isSelected = ble.targetPowerWatts == 0 && ble.simulatedSlopePercent == 0.0 && ble.directResistancePercent == percent;
+    return Expanded(
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          backgroundColor: isSelected ? const Color(0xFF10B981) : Colors.transparent,
+          foregroundColor: isSelected ? Colors.white : const Color(0xFF34D399),
+          side: const BorderSide(color: Color(0xFF10B981)),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        ),
+        onPressed: ble.hasTrainerControl ? () => ble.setDirectResistance(percent) : null,
+        child: Text("$percent%", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
       ),
     );
   }
