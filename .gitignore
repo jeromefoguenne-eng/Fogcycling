@@ -1,0 +1,27 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.apk
+*.aab
+
+# Node / Colyseus
+node_modules/
+dist/
+
+# Environnement et Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.token
+
+# IDE & OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
