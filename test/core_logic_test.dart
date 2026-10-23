@@ -8,6 +8,8 @@ import 'package:fogcycling/core/safety/safety_limiter.dart';
 import 'package:fogcycling/core/strava/strava_exporter.dart';
 import 'package:fogcycling/core/workouts/workout_models.dart';
 import 'package:fogcycling/core/multiplayer/multiplayer_models.dart';
+import 'package:fogcycling/core/coach/coach_stravos_ai_engine.dart';
+import 'package:fogcycling/core/settings/device_performance_and_storage.dart';
 import 'package:fogcycling/providers/athlete_profile_provider.dart';
 import 'package:fogcycling/providers/multiplayer_provider.dart';
 
@@ -265,6 +267,55 @@ void main() {
       );
       expect(privRoom.pinCode, equals('4000'));
       expect(mp.activeRoom.roomId, equals(privRoom.roomId));
+    });
+  });
+
+  group('Phase 7 & 8 — Coach Stravos AI Engine, W\' Balance (Skiba), PDC, Nutrition & Mobile Presets Tests', () {
+    test('W\' Balance depletes above CP/FTP and reconstitutes exponentially below CP', () {
+      final engine = CoachStravosAiEngine();
+      expect(engine.currentWPrimeBalanceKj, closeTo(18.0, 0.1));
+
+      // Attack at 350W for 20 seconds with CP = 200W -> depletes 150W * 20s = 3000 J (3.0 kJ)
+      for (int i = 0; i < 20; i++) {
+        engine.updateWPrimeBalance(currentWatts: 350, criticalPowerWatts: 200);
+      }
+      expect(engine.currentWPrimeBalanceKj, closeTo(15.0, 0.2));
+
+      // Recover at 120W for 30 seconds -> W' balance increases
+      for (int i = 0; i < 30; i++) {
+        engine.updateWPrimeBalance(currentWatts: 120, criticalPowerWatts: 200);
+      }
+      expect(engine.currentWPrimeBalanceKj, greaterThanOrEqualTo(15.2));
+    });
+
+    test('Generates custom AI ERG workouts adapted to TSB and computes scientific cycling nutrition', () {
+      final engine = CoachStravosAiEngine();
+      final customPlan = engine.generateCustomWorkout(
+        durationMinutes: 45,
+        goal: StravosTrainingGoal.puncheurArdennais,
+        currentTsbForm: -12.5, // Fatigued -> auto-scales intensity by 0.95
+        athleteFtp: 210,
+      );
+      expect(customPlan.segments.length, greaterThanOrEqualTo(5));
+      expect(customPlan.title, contains('45m'));
+
+      final nutrition = engine.computeNutritionPlan(
+        durationSeconds: 5400, // 1h30 climb
+        avgWatts: 205,
+        ftpWatts: 210,
+        weightKg: 72.0,
+      );
+      expect(nutrition.carbsGramsPerHour, equals(90));
+      expect(nutrition.hydrationMlPerHour, equals(750));
+      expect(nutrition.postRideCarbsGrams, greaterThan(60));
+    });
+
+    test('AthleteProfileProvider manages Phase 8 WebGL graphics quality presets', () {
+      final profile = AthleteProfileProvider();
+      expect(profile.graphicsQuality, equals(GraphicsQualityPreset.balanced60Fps));
+      profile.setGraphicsQuality(GraphicsQualityPreset.ecoBattery);
+      expect(profile.graphicsQuality, equals(GraphicsQualityPreset.ecoBattery));
+      expect(profile.graphicsQuality.jsKey, equals('eco'));
     });
   });
 }

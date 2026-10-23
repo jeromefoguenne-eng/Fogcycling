@@ -1,12 +1,17 @@
 import 'package:flutter/foundation.dart';
+import '../core/coach/coach_stravos_ai_engine.dart';
 import '../core/profile/athlete_profile_models.dart';
+import '../core/settings/device_performance_and_storage.dart';
 
-/// Contrôleur de la Phase 5 :
+/// Contrôleur des Phases 5, 7 & 8 :
 /// - Espace Membre (Profil Athlète, FTP, Poids, Calcul automatique des 7 Zones de Puissance)
 /// - Historique des sorties & Suivi de charge physiologique (CTL Forme, ATL Fatigue, TSB Fraîcheur)
 /// - Garage 3D (Choix du vélo et du maillot distinctif)
-/// - Espace Administrateur Protégé (Rôle Admin, Audit de sécurité, Paramètres de sécurité FTMS)
+/// - Coach Stravos IA (Phase 7 : Réserve W' Balance Skiba, Courbe PDC, Nutrition & Débriefing)
+/// - Qualité Graphique Mobile 3D & Persistance Locale Hors-Ligne (Phase 8)
 class AthleteProfileProvider extends ChangeNotifier {
+  final CoachStravosAiEngine stravosEngine = CoachStravosAiEngine();
+  GraphicsQualityPreset _graphicsQuality = GraphicsQualityPreset.balanced60Fps;
   // ─── 1. IDENTITÉ & PHYSIOLOGIE ATHLÈTE ──────────────────────────────────────
   String _displayName = "Jérôme Foguenne";
   String _role = "admin"; // 'admin' ou 'athlete'
@@ -109,6 +114,7 @@ class AthleteProfileProvider extends ChangeNotifier {
 
   GarageBikeModel get selectedBike => _selectedBike;
   GarageJerseyModel get selectedJersey => _selectedJersey;
+  GraphicsQualityPreset get graphicsQuality => _graphicsQuality;
   List<PowerZoneRange> get powerZones => PowerZoneRange.computeCogganZones(_ftpWatts);
   List<RecordedRideActivity> get rideHistory => List.unmodifiable(_rideHistory);
   List<SecurityAuditEntry> get auditLogs => List.unmodifiable(_auditLogs);
@@ -151,7 +157,34 @@ class AthleteProfileProvider extends ChangeNotifier {
 
   void equipJersey(GarageJerseyModel jersey) {
     _selectedJersey = jersey;
+    _persistStateLocally();
     notifyListeners();
+  }
+
+  void setGraphicsQuality(GraphicsQualityPreset preset) {
+    _graphicsQuality = preset;
+    _addAuditLog('GRAPHICS_PRESET', 'INFO', 'Qualité WebGL mobile réglée sur : ${preset.title}');
+    _persistStateLocally();
+    notifyListeners();
+  }
+
+  void tickWPrimePhysiology(int currentWatts) {
+    stravosEngine.updateWPrimeBalance(
+      currentWatts: currentWatts,
+      criticalPowerWatts: _ftpWatts,
+    );
+  }
+
+  void _persistStateLocally() {
+    LocalPersistenceManager.saveState({
+      'displayName': _displayName,
+      'weightKg': _weightKg,
+      'ftpWatts': _ftpWatts,
+      'xpPoints': _xpPoints,
+      'selectedBikeId': _selectedBike.id,
+      'selectedJerseyId': _selectedJersey.id,
+      'graphicsPreset': _graphicsQuality.jsKey,
+    });
   }
 
   /// Sauvegarde la sortie en cours dans l'historique et attribue des points d'expérience XP

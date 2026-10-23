@@ -877,6 +877,21 @@
       }
     };
 
+    // Optimisation Mobile & Batterie (Phase 8 - Qualité Graphique WebGL)
+    window.setGraphicsQuality = function(presetKey) {
+      if (!renderer) return;
+      if (presetKey === 'eco') {
+        renderer.setPixelRatio(1.0);
+        renderer.shadowMap.enabled = false;
+      } else if (presetKey === 'ultra') {
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
+        renderer.shadowMap.enabled = true;
+      } else {
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        renderer.shadowMap.enabled = true;
+      }
+    };
+
     window.onload = init;
   </script>
 </body>

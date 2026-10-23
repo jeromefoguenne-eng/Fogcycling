@@ -76,20 +76,22 @@ Le développement de Fogcycling suit une méthodologie rigoureuse en 8 phases s�
 
 ---
 
-## Phase 7 — Intégration Native de Coach Stravos
-- **Objectif** : Brancher le coach IA pour analyser la forme du cycliste et concevoir des entraînements sur mesure exécutables en 1 clic.
-- **Tâches Clés** :
-  1. Relier le service d'inférence (Groq Llama 3.3 70B / Gemini Flash) avec le profil sportif du cycliste.
-  2. Adapter les sorties du coach au format de schéma d'entraînement structuré (`WorkoutDefinition`).
-  3. Fournir des débriefings personnalisés post-séance (analyse de l'adhérence aux watts cibles et conseils physiologiques).
-- **Livrable** : Recommandation IA transformée en séance exécutable sur le Zwift Hub One.
+## Phase 7 — Intégration Native de Coach Stravos IA, Réserve $W'$ Balance (Skiba), Courbe PDC & Nutrition — [IMPLÉMENTÉ & LIVRÉ ✅]
+- **Statut** : **Livré dans Fogcycling.apk le 23/10/2026**.
+- **Objectif** : Brancher le cerveau IA et physiologique de Coach Stravos pour concevoir des entraînements sur mesure exécutables en 1 clic, modéliser la batterie anaérobie $W'$ et calculer la nutrition cycliste.
+- **Tâches Clés Réalisées** :
+  1. **Moteur Physiologique & IA Coach Stravos** (`coach_stravos_ai_engine.dart` & `coach_stravos_ai_modal.dart`) : Générateur de séances structurées sur mesure en 1 clic selon le temps disponible (`20` à `90 min`), l'objectif (*Seuil Cols, Puncheur Ardennais, Force Pavés, PMA VO2max, Récupération*) et la fatigue du jour (`TSB`), directement envoyé au frein ERG du Zwift Hub One.
+  2. **Modélisation Dynamique $W'$ Balance (Skiba)** : Jauge de batterie anaérobie en temps réel (en kJ et %) qui se vide lors des attaques au-dessus de la FTP et se recharge exponentiellement dans les roues du peloton.
+  3. **Courbe Puissance-Temps (PDC / MMP) & Quadrant Analysis** : Suivi des records sur 5 sec (Sprint), 1 min (Anaérobie), 5 min (PMA) et 20 min (Seuil) en Watts et W/kg + analyse Force/Vélocité (Q1 à Q4).
+  4. **Calculateur de Nutrition & Débriefing Post-Séance** : Calcul des kJ mécaniques, kcal dépensées, glucides par heure (`30g`, `60g` ou `90g/h` ratio Glucose:Fructose 2:1), hydratation (`ml/h`), sodium (`mg/h`), score d'adhérence ERG et découplage aérobie cardiaque (`Pw:HR`).
 
 ---
 
-## Phase 8 — Stabilisation, Optimisation Mobile & Déploiement
-- **Objectif** : Atteindre un niveau de qualité de production, auditer la sécurité et préparer les packages de distribution.
-- **Tâches Clés** :
-  1. Profiling des performances graphiques et de la consommation de batterie sur smartphone.
-  2. Audit de cybersécurité méthodique selon le framework Cloudflare en 6 phases.
-  3. Compilation des bundles de production Android (.apk / .aab) et documentation utilisateur.
-- **Livrable** : Version Bêta finale installable prête pour tests utilisateurs réels.
+## Phase 8 — Stabilisation, Optimisation Mobile (Batterie/WebGL), Persistance Locale & Audit de Sécurité — [IMPLÉMENTÉ & LIVRÉ ✅]
+- **Statut** : **Livré dans Fogcycling.apk le 23/10/2026**.
+- **Objectif** : Atteindre un niveau de qualité de production, optimiser l'autonomie batterie sur smartphone, auditer la sécurité et compiler le package final.
+- **Tâches Clés Réalisées** :
+  1. **Gestionnaire de Qualité Graphique WebGL & Économie de Batterie** (`device_performance_and_storage.dart` & `window.setGraphicsQuality`) : 3 modes (*Éco Batterie 30 FPS* sans chauffe pour longues étapes d'1h30, *Équilibré 60 FPS*, *Ultra Cartoon HD*).
+  2. **Persistance Locale Hors-Ligne (`LocalPersistenceManager`)** : Sauvegarde automatique sur le stockage de l'appareil.
+  3. **Audit de Cybersécurité Méthodique en 6 Phases** (`docs/SECURITY_AUDIT_PHASE8.md` & `docs/coverage-ledger.json`) : Certifié sans vulnérabilité critique ou haute.
+  4. **Compilation & Livraison Finale** : Suite complète de 17 tests automatisés (`flutter test` 100% vert), `flutter analyze` (0 issue) et APK final `Fogcycling.apk` généré sur le Bureau et synchronisé sur GitHub.

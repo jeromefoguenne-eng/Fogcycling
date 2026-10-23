@@ -16,6 +16,7 @@ import '../providers/workout_provider.dart';
 import 'hardware_test_screen.dart';
 import 'member_and_admin_screen.dart';
 import 'multiplayer_lobby_modal.dart';
+import 'coach_stravos_ai_modal.dart';
 
 /// Écran principal de Fogcycling (Phases 2, 3 & 4) :
 /// - Monde 3D Cartoon v2 avec Peloton (Équipiers & Adversaires) et thèmes par col
@@ -51,6 +52,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
       final workout = Provider.of<WorkoutProvider>(context, listen: false);
       final career = Provider.of<CareerRaceProvider>(context, listen: false);
       final mp = Provider.of<MultiplayerProvider>(context, listen: false);
+      final profileProv = Provider.of<AthleteProfileProvider>(context, listen: false);
 
       final currentWatts = _isDemoMode
           ? (workout.isWorkoutActive ? workout.currentTargetWatts : _demoWatts)
@@ -79,6 +81,8 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
         currentSlopePercent: career.activeRoute.getSlopeAtDistance(career.playerDistanceMeters),
         playerHeartRateBpm: ble.heartRateBpm,
       );
+
+      profileProv.tickWPrimePhysiology(currentWatts);
 
       if (rawSpeedKmh > 0.5 || currentWatts > 10) {
         setState(() {
@@ -909,6 +913,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
               bikeHexColor: profileProv.selectedBike.displayColor.toARGB32(),
               jerseyHexColor: profileProv.selectedJersey.displayColor.toARGB32(),
               multiplayerRidersJson: mp.relativeRidersJsonFor3d,
+              graphicsQualityKey: profileProv.graphicsQuality.jsKey,
             ),
           ),
 
@@ -1025,7 +1030,39 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
                           ),
                           const SizedBox(width: 5),
 
-                          // 5. Séances & Plans Coach Stravos
+                          // 5. Coach Stravos IA Sur Mesure, Batterie W', PDC & Nutrition (Phase 7)
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFD97706),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(Icons.psychology, size: 14),
+                            label: Text(
+                              "Coach IA (W' ${profileProv.stravosEngine.wPrimePercentage.round()}%)",
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900),
+                            ),
+                            onPressed: () {
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: const Color(0xFF0F172A),
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                                ),
+                                builder: (_) => CoachStravosAiModal(
+                                  currentRideDurationSeconds: _elapsedSeconds,
+                                  currentRideAvgWatts: avgWatts,
+                                  currentRideCadenceRpm: activeCadence,
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 5),
+
+                          // 6. Catalogue Séances & Plans Coach Stravos
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: workout.isWorkoutActive ? Colors.amberAccent : const Color(0xFF0284C7),
