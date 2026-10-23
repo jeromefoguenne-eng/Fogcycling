@@ -25,8 +25,8 @@
     let scene, camera, renderer;
     let cyclistGroup, bikeFrame, frontWheelGroup, rearWheelGroup, crankset;
     let leftThigh, leftCalf, leftFoot, rightThigh, rightCalf, rightFoot, leftKnee, rightKnee;
-    let roadSegments = [], cloudPool = [];
-    let workoutArch;
+    let roadSegments = [], cloudPool = [], aiRidersPool = [];
+    let workoutArch, groundMesh;
 
     // Télémétrie reçue de Flutter / Zwift Hub
     let targetWatts = 0, currentWatts = 0;
@@ -105,8 +105,9 @@
       createRoadStream();
       createWorkoutArch();
 
-      // 6. VÉLO DE COURSE & AVATAR 3D CYCLISTE CORRIGÉ
+      // 6. VÉLO DE COURSE, AVATAR JOUEUR & PELOTON IA (ÉQUIPIERS + ADVERSAIRES)
       createCartoonCyclistAndBike();
+      createAiPeloton3D();
 
       window.addEventListener('resize', onWindowResize, false);
       animate();
@@ -116,11 +117,80 @@
     function createTerrain() {
       const groundGeo = new THREE.PlaneGeometry(400, 400);
       const groundMat = new THREE.MeshToonMaterial({ color: 0x4ade80 });
-      const ground = new THREE.Mesh(groundGeo, groundMat);
-      ground.rotation.x = -Math.PI / 2;
-      ground.position.y = -0.05;
-      ground.receiveShadow = true;
-      scene.add(ground);
+      groundMesh = new THREE.Mesh(groundGeo, groundMat);
+      groundMesh.rotation.x = -Math.PI / 2;
+      groundMesh.position.y = -0.05;
+      groundMesh.receiveShadow = true;
+      scene.add(groundMesh);
+    }
+
+    // Création du Peloton 3D (Vos Équipiers en Bleu/Or + Leaders Maillot Jaune, Pois, Vert)
+    function createAiPeloton3D() {
+      const pelotonConfigs = [
+        { jersey: 0x0284c7, helmet: 0xfacc15, zOffset: 2.3, xOffset: -0.35, isTeammate: true },  // Équipier #1 (Poisson-Pilote)
+        { jersey: 0x0284c7, helmet: 0xfacc15, zOffset: 3.8, xOffset: 0.45, isTeammate: true },   // Équipier #2 (Grimpeur)
+        { jersey: 0xfacc15, helmet: 0xfacc15, zOffset: 6.2, xOffset: -0.75, isTeammate: false }, // Leader Maillot Jaune
+        { jersey: 0x22c55e, helmet: 0x16a34a, zOffset: 5.0, xOffset: 0.85, isTeammate: false },  // Leader Maillot Vert
+        { jersey: 0xef4444, helmet: 0xffffff, zOffset: 8.0, xOffset: 0.10, isTeammate: false },  // Leader Maillot à Pois
+        { jersey: 0x9333ea, helmet: 0xf8fafc, zOffset: 10.5, xOffset: -0.55, isTeammate: false } // Rival Pro
+      ];
+
+      for (let i = 0; i < pelotonConfigs.length; i++) {
+        const cfg = pelotonConfigs[i];
+        const aiRider = new THREE.Group();
+
+        const darkMat = new THREE.MeshToonMaterial({ color: 0x0f172a });
+        const frameMat = new THREE.MeshToonMaterial({ color: cfg.isTeammate ? 0xf97316 : 0xe2e8f0 });
+        const jerseyMat = new THREE.MeshToonMaterial({ color: cfg.jersey });
+        const helmetMat = new THREE.MeshToonMaterial({ color: cfg.helmet });
+        const skinMat = new THREE.MeshToonMaterial({ color: 0xfdba74 });
+
+        // Roues avant et arrière (dans le plan YZ !)
+        const rWheel = createBikeWheel(0.32);
+        rWheel.position.set(0, 0.32, -0.48);
+        aiRider.add(rWheel);
+
+        const fWheel = createBikeWheel(0.32);
+        fWheel.position.set(0, 0.32, 0.48);
+        aiRider.add(fWheel);
+
+        // Cadre simplifié
+        aiRider.add(createTubeBetween(new THREE.Vector3(0, 0.30, -0.08), new THREE.Vector3(0, 0.78, -0.22), 0.022, frameMat));
+        aiRider.add(createTubeBetween(new THREE.Vector3(0, 0.78, -0.22), new THREE.Vector3(0, 0.80, 0.38), 0.022, frameMat));
+        aiRider.add(createTubeBetween(new THREE.Vector3(0, 0.30, -0.08), new THREE.Vector3(0, 0.65, 0.40), 0.024, frameMat));
+
+        // Corps & Maillot distinctif
+        const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.12, 0.42, 12), jerseyMat);
+        torso.position.set(0, 1.12, -0.05);
+        torso.rotation.x = Math.PI / 3.4;
+        torso.castShadow = true;
+        aiRider.add(torso);
+
+        const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.135, 10, 10), darkMat);
+        pelvis.position.set(0, 0.96, -0.22);
+        aiRider.add(pelvis);
+
+        // Tête & Casque
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 12), skinMat);
+        head.position.set(0, 1.38, 0.15);
+        aiRider.add(head);
+
+        const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.125, 12, 12), helmetMat);
+        helmet.scale.set(1.0, 0.85, 1.25);
+        helmet.position.set(0, 1.42, 0.15);
+        aiRider.add(helmet);
+
+        aiRider.userData = {
+          baseZ: cfg.zOffset,
+          xOffset: cfg.xOffset,
+          rWheel: rWheel,
+          fWheel: fWheel,
+          phase: i * 1.1
+        };
+
+        aiRidersPool.push(aiRider);
+        scene.add(aiRider);
+      }
     }
 
     function createMountains() {
@@ -689,6 +759,26 @@
         workoutArch.rotation.y = Math.atan(getRoadCurveDerivative(archWorldZ));
       }
 
+      // Animation du Peloton 3D (Équipiers & Adversaires) sur la route
+      for (let a = 0; a < aiRidersPool.length; a++) {
+        const ai = aiRidersPool[a];
+        const ud = ai.userData;
+        // Légère oscillation longitudinale naturelle de peloton
+        const zPos = ud.baseZ + Math.sin(distanceTraveled * 0.08 + ud.phase) * 0.6;
+        const aiWorldZ = distanceTraveled + zPos;
+        const curveX = getRoadCurveX(aiWorldZ);
+        const slopeX = getRoadCurveDerivative(aiWorldZ);
+
+        ai.position.z = zPos;
+        ai.position.x = curveX + ud.xOffset;
+        ai.rotation.y = Math.atan(slopeX) * 0.65;
+        ai.rotation.z = Math.sin(pedalAngle + ud.phase) * 0.025;
+
+        const wAng = (Math.max(currentSpeed, 6.5) / 2.1) * Math.PI * 2 * delta;
+        ud.rWheel.rotation.x += wAng;
+        ud.fWheel.rotation.x += wAng;
+      }
+
       // Nuages
       for (let c = 0; c < cloudPool.length; c++) {
         cloudPool[c].position.x += delta * 0.7;
@@ -723,6 +813,26 @@
       targetSpeed = (Number(speedKmh) || 0) / 3.6;
       currentSlope = Number(slope) || 0.0;
       currentGear = Number(gear) || 10;
+    };
+
+    window.setEnvironmentTheme = function(themeKey) {
+      if (!groundMesh || !scene) return;
+      if (themeKey === 'ventoux_lunar') {
+        groundMesh.material.color.setHex(0xe2e8f0); // Calcaire blanc lunaire du Ventoux
+        scene.background.setHex(0x38bdf8);
+      } else if (themeKey === 'alpine_snow') {
+        groundMesh.material.color.setHex(0xf1f5f9); // Neiges éternelles Galibier / Stelvio
+        scene.background.setHex(0x60a5fa);
+      } else if (themeKey === 'cobbles_flanders') {
+        groundMesh.material.color.setHex(0x65a30d); // Prairies des Flandres / Roubaix
+        scene.background.setHex(0x94a3b8);
+      } else if (themeKey === 'mediterranean') {
+        groundMesh.material.color.setHex(0x84cc16); // Riviera Poggio Sanremo
+        scene.background.setHex(0x0ea5e9);
+      } else {
+        groundMesh.material.color.setHex(0x4ade80); // Forêts Ardennaises (Huy, Redoute)
+        scene.background.setHex(0x60a5fa);
+      }
     };
 
     window.onload = init;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/ble_sensor_provider.dart';
+import 'providers/career_race_provider.dart';
 import 'providers/workout_provider.dart';
 import 'screens/cycling_ride_screen.dart';
 
@@ -11,6 +12,7 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => BleSensorProvider()),
         ChangeNotifierProvider(create: (_) => WorkoutProvider()),
+        ChangeNotifierProvider(create: (_) => CareerRaceProvider()),
       ],
       child: const FogcyclingApp(),
     ),

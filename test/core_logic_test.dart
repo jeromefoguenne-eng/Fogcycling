@@ -1,17 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fogcycling/core/bluetooth/ftms_data_parser.dart';
+import 'package:fogcycling/core/career/races_and_peloton_models.dart';
 import 'package:fogcycling/core/physics/virtual_shifting.dart';
+import 'package:fogcycling/core/routes/mythical_routes.dart';
 import 'package:fogcycling/core/safety/safety_limiter.dart';
+import 'package:fogcycling/core/strava/strava_exporter.dart';
 import 'package:fogcycling/core/workouts/workout_models.dart';
 
 void main() {
   group('FtmsDataParser Tests', () {
     test('Decodes Instantaneous Power and Cadence correctly from FTMS 0x2AD2', () {
       final rawBytes = [
-        0x44, 0x00, // Flags
-        0xB8, 0x0B, // Speed 30.00 km/h
-        0xB4, 0x00, // Cadence 90 RPM
-        0xFA, 0x00, // Power 250 W
+        0x44, 0x00,
+        0xB8, 0x0B,
+        0xB4, 0x00,
+        0xFA, 0x00,
       ];
 
       final telemetry = FtmsDataParser.parseIndoorBikeData(rawBytes);
@@ -92,18 +95,69 @@ void main() {
   group('Workout Engine (Phase 3) Tests', () {
     test('Computes accurate ERG target watts from Athlete FTP', () {
       final workouts = WorkoutCatalog.workouts;
-      expect(workouts.length, greaterThanOrEqualTo(3));
+      expect(workouts.length, greaterThanOrEqualTo(7));
 
       final expressPlan = workouts.first;
-      expect(expressPlan.totalDurationSeconds, equals(300)); // 5 minutes
+      expect(expressPlan.totalDurationSeconds, equals(300));
 
-      // Segment 1: 50% of 200W FTP = 100W
       expect(expressPlan.segments[0].targetWattsForFtp(200), equals(100));
       expect(expressPlan.segments[0].zoneName, equals("Z1 RÉCUP"));
 
-      // Segment 4: 100% of 240W FTP = 240W
       expect(expressPlan.segments[3].targetWattsForFtp(240), equals(240));
       expect(expressPlan.segments[3].zoneName, equals("Z4 SEUIL"));
+    });
+  });
+
+  group('Phase 4 — Mythical Routes, AI 10 Levels & Strava Exporter Tests', () {
+    test('10 AI difficulty levels scale from 170W to 260W by 10W increments', () {
+      final levels = AiDifficultyLevel.allLevels;
+      expect(levels.length, equals(10));
+      expect(levels[0].averageWatts, equals(170));
+      expect(levels[1].averageWatts, equals(180));
+      expect(levels[2].averageWatts, equals(190));
+      expect(levels[3].averageWatts, equals(200));
+      expect(levels[9].averageWatts, equals(260));
+    });
+
+    test('MythicalRoutesCatalog contains iconic climbs and interpolates GPS coordinates', () {
+      expect(MythicalRoutesCatalog.routes.length, equals(12));
+      final ventoux = MythicalRoutesCatalog.getById('mont_ventoux');
+      expect(ventoux.komCategory, equals(KomCategory.hc));
+
+      final gpsStart = ventoux.getGpsCoordinatesAt(0);
+      expect(gpsStart['lat'], closeTo(44.1238, 0.01));
+      expect(gpsStart['ele'], closeTo(340, 1.0));
+
+      final gpsTop = ventoux.getGpsCoordinatesAt(ventoux.totalDistanceMeters);
+      expect(gpsTop['ele'], closeTo(1910, 1.0));
+    });
+
+    test('StravaExporter generates valid Garmin TCX XML with GPS and Watts', () {
+      final xml = StravaExporter.generateGarminTcx(
+        activityTitle: 'Montée du Ventoux',
+        routeName: 'Mont Ventoux',
+        trackpoints: [
+          StravaTrackpoint(
+            timestamp: DateTime.utc(2026, 10, 23, 14, 0, 0),
+            latitude: 44.1238,
+            longitude: 5.1802,
+            altitudeMeters: 340.0,
+            distanceMeters: 10.0,
+            watts: 235,
+            cadenceRpm: 88,
+            heartRateBpm: 152,
+          ),
+        ],
+        totalTimeSeconds: 60,
+        totalDistanceMeters: 450.0,
+        averageWatts: 235,
+        maxWatts: 280,
+      );
+
+      expect(xml, contains('<TrainingCenterDatabase'));
+      expect(xml, contains('<ns3:Watts>235</ns3:Watts>'));
+      expect(xml, contains('<Cadence>88</Cadence>'));
+      expect(xml, contains('<LatitudeDegrees>44.123800</LatitudeDegrees>'));
     });
   });
 }

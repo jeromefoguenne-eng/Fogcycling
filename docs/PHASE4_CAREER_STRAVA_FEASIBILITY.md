@@ -93,10 +93,10 @@ Chaque coureur IA possède un **budget énergétique anaérobie ($W'$)** et un *
 
 ---
 
-## 6. Physique d'Aspiration (Drafting) & Tactique de Course
+## 6. Physique d'Aspiration (Drafting), Équipiers IA & Tactique de Course
 
 ### 6.1 Modèle Aérodynamique Multi-Coureurs
-À chaque cycle (10 Hz), la distance longitudinale ($\Delta z$) et latérale ($\Delta x$) entre le joueur et les coureurs IA situés devant lui est évaluée dans un cône d'aspiration de $1.5\text{ m}$ à $12\text{ m}$ :
+À chaque cycle (10 Hz), la distance longitudinale ($\Delta z$) et latérale ($\Delta x$) entre le joueur et les coureurs situés devant lui est évaluée dans un cône d'aspiration de $1.5\text{ m}$ à $12\text{ m}$ :
 
 $$\text{Gain d'Aspiration } \alpha_{draft} = \sum_{i \in \text{devant}} w_i(d_i) \quad \text{plafonné à } 42\%$$
 
@@ -104,8 +104,34 @@ $$\text{Gain d'Aspiration } \alpha_{draft} = \sum_{i \in \text{devant}} w_i(d_i)
 | :--- | :---: | :---: | :--- |
 | **Seul en échappée ou en tête de peloton ("Nez au vent")** | **0 %** | **~295 W** | Épuisement rapide si l'effort est prolongé ; risque de se faire contrer dans le final. |
 | **Dans la roue d'un coureur (File indienne / Échappée à 3)** | **25 %** | **~225 W** | Économie de ~70 Watts à vitesse identique. |
+| **Protégé par un Équipier ("Garde Rapprochée")** | **35 %** | **~195 W** | Votre équipier coupe le vent juste devant vous, même hors du peloton. |
 | **Au chaud au cœur du peloton (> 4 coureurs devant)** | **40 %** | **~185 W** | Économie de ~110 Watts ! Permet de récupérer en Z1/Z2 tout en roulant à 40 km/h avant le pied d'un col. |
-| **En montée raide (> 7% : Mur de Huy, Ventoux)** | **< 5 %** | Gravité dominante | En côte raide, la vitesse baisse (< 18 km/h), l'aspiration devient négligeable : seul le rapport **Watts/kg** décide de la sélection ! |
+
+### 6.2 Gestion des Équipiers (Team Fogcycling) & Stratégie d'Avant-Course
+Le joueur dispose de **3 équipiers dédiés** (un *Rouleur/Poisson-pilote*, un *Puncheur*, et un *Lieutenant de Montagne*) dotés d'une jauge d'énergie ($W'$) visible dans le HUD :
+1. **Stratégies de Départ (Briefing d'Avant-Course)** :
+   - 🛡️ **Garde Rapprochée (Protection du Leader)** : Vos équipiers restent en permanence autour de vous pour vous garantir -35% de résistance aérodynamique.
+   - 🚂 **Train de Montagne (Écrémage)** : Vos équipiers prennent la tête du peloton dès que la pente dépasse 5% pour imposer un tempo élevé et distancer les adversaires.
+   - 💥 **Chasse à l'Échappée** : Vos rouleurs assurent la poursuite en tête de peloton dans la plaine pour favoriser une arrivée groupée ou au pied du col final.
+   - 🚀 **Point d'Appui en Échappée** : Un équipier part dans l'échappée matinale pour viser les points du maillot à pois/vert et vous servir de relais dans le final.
+2. **Ordres Radio en Direct (Boutons Tactiques dans le HUD)** :
+   - `🛡️ Me protéger du vent` : Appelle immédiatement un équipier 2 mètres devant vous.
+   - `🚂 Rouler à bloc en tête` : Ordonne à vos équipiers de durcir l'allure du groupe (+25% Watts).
+   - `⚡ Poisson-pilote Sprint` : Lance le train de sprint à l'approche d'un sprint intermédiaire ou de l'arrivée.
+   - `🔋 Récupérer` : Ordonne aux équipiers de se replacer dans les roues pour recharger leur batterie d'énergie.
+
+---
+
+## 7. Plans d'Entraînement Structurés (Coach Stravos) & Choix Libre du Parcours
+
+Comme sur Zwift, l'utilisateur peut dissocier ou combiner librement **le programme d'entraînement** et **le lieu géographique** :
+1. **Choix du Lieu / Parcours avant chaque Séance** :
+   - Avant de lancer n'importe quel entraînement ou sortie libre, l'utilisateur sélectionne son parcours parmi les **12 lieux mythiques** (ex: réaliser sa séance de Seuil sur les pentes du *Mont Ventoux*, sa séance de Force sur le *Mur de Huy*, ou ses intervalles PMA sur le *Passo dello Stelvio*).
+2. **Plans d'Entraînement par Objectif & Filtres d'Intensité** :
+   - 🎯 **Plan « Booster sa FTP »** (Sweet Spot, Over-Unders, Seuil Z4 — Intensité Haute).
+   - ⛰️ **Plan « Roi de la Montagne (Grimpeur) »** (Force sous-maximale 60 RPM, Tempo long Z3, Changements de rythme en col).
+   - 💥 **Plan « Puncheur Ardennais & Flandrien »** (PMA 30/30, Explosivité 1-2 min, Sprints anaérobies Z6).
+   - 🩺 **Tests d'Évaluation Coach Stravos** : *Test Ramp FTP* (paliers d'une minute jusqu'à épuisement avec détection automatique de la nouvelle FTP) et *Récupération Active Z1*.
 
 ---
 
