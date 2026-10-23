@@ -16,14 +16,17 @@
 
   <script>
     // ==============================================================================
-    // FOGCYCLING 3D CARTOON ENGINE (THREE.JS / WEBGL)
+    // FOGCYCLING 3D CARTOON ENGINE v2.0 (THREE.JS / WEBGL)
+    // - Vélo de route orienté dans l'axe Z avec vraies roues à rayons (plan YZ)
+    // - Cinématique inverse (IK) des jambes verrouillée sur la cadence réelle
+    // - Portiques lumineux 3D pour les changements d'intervalles d'entraînement
     // ==============================================================================
 
     let scene, camera, renderer;
-    let cyclistGroup, bikeFrame, frontWheel, rearWheel, crankset;
-    let leftThigh, leftCalf, leftFoot, rightThigh, rightCalf, rightFoot;
-    let leftPedal, rightPedal;
-    let roadSegments = [], treePool = [], cloudPool = [];
+    let cyclistGroup, bikeFrame, frontWheelGroup, rearWheelGroup, crankset;
+    let leftThigh, leftCalf, leftFoot, rightThigh, rightCalf, rightFoot, leftKnee, rightKnee;
+    let roadSegments = [], cloudPool = [];
+    let workoutArch;
 
     // Télémétrie reçue de Flutter / Zwift Hub
     let targetWatts = 0, currentWatts = 0;
@@ -31,57 +34,79 @@
     let targetSpeed = 0, currentSpeed = 0; // en m/s
     let currentSlope = 0.0;
     let currentGear = 10;
-    let distanceTraveled = 0; // mètres
+    let distanceTraveled = 0;
 
     let pedalAngle = 0;
     let clock = new THREE.Clock();
 
+    // Courbure de la route
+    function getRoadCurveX(zWorld) {
+      return Math.sin(zWorld * 0.018) * 3.2 + Math.cos(zWorld * 0.007) * 1.5;
+    }
+
+    function getRoadCurveDerivative(zWorld) {
+      return Math.cos(zWorld * 0.018) * 0.018 * 3.2 - Math.sin(zWorld * 0.007) * 0.007 * 1.5;
+    }
+
     function init() {
       const container = document.getElementById('canvas-container');
 
-      // 1. SCÈNE & BROUILLARD ATMOSPHÉRIQUE CARTOON
+      // 1. SCÈNE & ATMOSPHÈRE ALPINE CARTOON
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x7dd3fc); // Ciel bleu pastel
-      scene.fog = new THREE.FogExp2(0x7dd3fc, 0.007);
+      scene.background = new THREE.Color(0x60a5fa);
+      scene.fog = new THREE.FogExp2(0x93c5fd, 0.0065);
 
-      // 2. CAMÉRA 3RD PERSON
-      camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 800);
-      camera.position.set(0, 2.2, -4.2); // Juste derrière et au-dessus du coureur
-      camera.lookAt(0, 1.4, 3.0);
+      // 2. CAMÉRA 3RD PERSON DYNAMIQUE
+      camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 800);
+      camera.position.set(0, 2.15, -3.8);
+      camera.lookAt(0, 1.25, 4.0);
 
-      // 3. MOTEUR DE RENDU WEBGL
+      // 3. MOTEUR DE RENDU WEBGL HAUTE FIDÉLITÉ
       renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      if (THREE.ACESFilmicToneMapping) {
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.1;
+      }
       container.appendChild(renderer.domElement);
 
       // 4. ÉCLAIRAGE DE STUDIO EN PLEIN AIR
-      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x22c55e, 0.7);
+      const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x15803d, 0.85);
       scene.add(hemiLight);
 
-      const sunLight = new THREE.DirectionalLight(0xfffbeb, 1.1);
-      sunLight.position.set(20, 40, -15);
+      const sunLight = new THREE.DirectionalLight(0xfef08a, 1.25);
+      sunLight.position.set(25, 45, -20);
       sunLight.castShadow = true;
       sunLight.shadow.mapSize.width = 1024;
       sunLight.shadow.mapSize.height = 1024;
-      sunLight.shadow.camera.near = 10;
+      sunLight.shadow.camera.near = 5;
       sunLight.shadow.camera.far = 120;
-      sunLight.shadow.camera.left = -20;
-      sunLight.shadow.camera.right = 20;
-      sunLight.shadow.camera.top = 20;
-      sunLight.shadow.camera.bottom = -20;
+      sunLight.shadow.camera.left = -18;
+      sunLight.shadow.camera.right = 18;
+      sunLight.shadow.camera.top = 18;
+      sunLight.shadow.camera.bottom = -18;
       scene.add(sunLight);
 
-      // 5. ENVIRONNEMENT (SOL, MONTAGNES, NUAGES)
+      // Soleil visuel dans le ciel
+      const sunMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(8, 24, 24),
+        new THREE.MeshBasicMaterial({ color: 0xfef08a })
+      );
+      sunMesh.position.set(65, 85, 220);
+      scene.add(sunMesh);
+
+      // 5. ENVIRONNEMENT (SOL, MONTAGNES, NUAGES, ROUTE)
       createTerrain();
       createMountains();
       createClouds();
       createRoadStream();
+      createWorkoutArch();
 
-      // 6. AVATAR 3D CYCLISTE STYLISÉ
-      createCartoonCyclist();
+      // 6. VÉLO DE COURSE & AVATAR 3D CYCLISTE CORRIGÉ
+      createCartoonCyclistAndBike();
 
       window.addEventListener('resize', onWindowResize, false);
       animate();
@@ -89,8 +114,7 @@
 
     // ─── TERRAIN ET DÉCORS ───────────────────────────────────────────────────
     function createTerrain() {
-      // Prairie émeraude ondulée
-      const groundGeo = new THREE.PlaneGeometry(300, 300, 16, 16);
+      const groundGeo = new THREE.PlaneGeometry(400, 400);
       const groundMat = new THREE.MeshToonMaterial({ color: 0x4ade80 });
       const ground = new THREE.Mesh(groundGeo, groundMat);
       ground.rotation.x = -Math.PI / 2;
@@ -100,367 +124,582 @@
     }
 
     function createMountains() {
-      // Crêtes de montagnes low-poly en arrière-plan
-      const mountainMat = new THREE.MeshToonMaterial({ color: 0x64748b });
+      const mtnColors = [0x64748b, 0x475569, 0x334155];
       const snowMat = new THREE.MeshToonMaterial({ color: 0xf8fafc });
 
-      for (let i = -4; i <= 4; i++) {
-        const height = 45 + Math.random() * 30;
-        const radius = 30 + Math.random() * 20;
-        const mountainGeo = new THREE.ConeGeometry(radius, height, 5);
-        const mountain = new THREE.Mesh(mountainGeo, mountainMat);
-        mountain.position.set(i * 35 + (Math.random() - 0.5) * 15, height / 2 - 5, 140 + Math.random() * 40);
-        scene.add(mountain);
+      for (let i = 0; i < 24; i++) {
+        const height = 35 + Math.random() * 55;
+        const radius = 22 + Math.random() * 28;
+        const mtnGroup = new THREE.Group();
 
-        // Calotte glaciaire / neige sur le sommet
-        const snowGeo = new THREE.ConeGeometry(radius * 0.35, height * 0.35, 5);
-        const snow = new THREE.Mesh(snowGeo, snowMat);
-        snow.position.set(mountain.position.x, mountain.position.y + height * 0.33, mountain.position.z);
-        scene.add(snow);
+        const mtnGeo = new THREE.ConeGeometry(radius, height, 7);
+        const mtnMat = new THREE.MeshToonMaterial({ color: mtnColors[i % mtnColors.length] });
+        const mtn = new THREE.Mesh(mtnGeo, mtnMat);
+        mtn.position.y = height / 2 - 2;
+        mtnGroup.add(mtn);
+
+        // Sommet enneigé cartoon
+        const capHeight = height * 0.32;
+        const capRadius = radius * 0.33;
+        const capGeo = new THREE.ConeGeometry(capRadius, capHeight, 7);
+        const cap = new THREE.Mesh(capGeo, snowMat);
+        cap.position.y = height - capHeight / 2 - 1.8;
+        mtnGroup.add(cap);
+
+        const side = (i % 2 === 0) ? 1 : -1;
+        mtnGroup.position.x = side * (40 + Math.random() * 90);
+        mtnGroup.position.z = 40 + i * 14;
+        mtnGroup.rotation.y = Math.random() * Math.PI;
+        scene.add(mtnGroup);
       }
     }
 
     function createClouds() {
-      const cloudMat = new THREE.MeshToonMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
-      for (let i = 0; i < 12; i++) {
-        const cloudGroup = new THREE.Group();
-        for (let j = 0; j < 4; j++) {
-          const puffGeo = new THREE.SphereGeometry(3 + Math.random() * 2, 6, 6);
+      const cloudMat = new THREE.MeshToonMaterial({ color: 0xffffff });
+      for (let i = 0; i < 16; i++) {
+        const cloud = new THREE.Group();
+        const puffs = 3 + Math.floor(Math.random() * 3);
+        for (let p = 0; p < puffs; p++) {
+          const puffGeo = new THREE.SphereGeometry(2.8 + Math.random() * 2.2, 10, 10);
           const puff = new THREE.Mesh(puffGeo, cloudMat);
-          puff.position.set((j - 1.5) * 2.5, Math.random() * 1.5, Math.random() * 1.5);
-          cloudGroup.add(puff);
+          puff.position.set(p * 2.6, Math.random() * 1.2, Math.random() * 1.5);
+          cloud.add(puff);
         }
-        cloudGroup.position.set((Math.random() - 0.5) * 160, 30 + Math.random() * 20, 20 + Math.random() * 120);
-        scene.add(cloudGroup);
-        cloudPool.push(cloudGroup);
+        cloud.position.set(-90 + Math.random() * 180, 26 + Math.random() * 18, 25 + Math.random() * 190);
+        cloudPool.push(cloud);
+        scene.add(cloud);
       }
     }
 
-    // ─── RUBAN DE ROUTE DYNAMIQUE & SAPINS ────────────────────────────────────
-    function createRoadStream() {
-      const segmentCount = 40;
-      const segmentLength = 4.0;
-
-      for (let i = 0; i < segmentCount; i++) {
-        const segment = new THREE.Group();
-
-        // Asphalte
-        const roadGeo = new THREE.PlaneGeometry(4.8, segmentLength);
-        const roadMat = new THREE.MeshToonMaterial({ color: 0x334155 });
-        const roadMesh = new THREE.Mesh(roadGeo, roadMat);
-        roadMesh.rotation.x = -Math.PI / 2;
-        roadMesh.receiveShadow = true;
-        segment.add(roadMesh);
-
-        // Ligne centrale blanche
-        if (i % 2 === 0) {
-          const lineGeo = new THREE.PlaneGeometry(0.18, segmentLength * 0.7);
-          const lineMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
-          const lineMesh = new THREE.Mesh(lineGeo, lineMat);
-          lineMesh.rotation.x = -Math.PI / 2;
-          lineMesh.position.y = 0.01;
-          segment.add(lineMesh);
-        }
-
-        // Bandes blanches de bordure de route
-        const edgeLeftGeo = new THREE.PlaneGeometry(0.15, segmentLength);
-        const edgeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        const edgeLeft = new THREE.Mesh(edgeLeftGeo, edgeMat);
-        edgeLeft.rotation.x = -Math.PI / 2;
-        edgeLeft.position.set(-2.25, 0.01, 0);
-        segment.add(edgeLeft);
-
-        const edgeRight = edgeLeft.clone();
-        edgeRight.position.x = 2.25;
-        segment.add(edgeRight);
-
-        // Sapins stylisés sur les côtés
-        if (Math.random() > 0.4) {
-          const side = Math.random() > 0.5 ? 1 : -1;
-          const tree = createCartoonTree();
-          tree.position.set(side * (4.2 + Math.random() * 6), 0, (Math.random() - 0.5) * segmentLength);
-          segment.add(tree);
-        }
-
-        segment.position.z = i * segmentLength - 10;
-        scene.add(segment);
-        roadSegments.push(segment);
-      }
-    }
-
-    function createCartoonTree() {
+    function createPineTree() {
       const tree = new THREE.Group();
-      // Tronc
-      const trunkGeo = new THREE.CylinderGeometry(0.2, 0.3, 1.2, 6);
       const trunkMat = new THREE.MeshToonMaterial({ color: 0x78350f });
-      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-      trunk.position.y = 0.6;
+      const leavesMat = new THREE.MeshToonMaterial({ color: 0x15803d });
+      const leavesLightMat = new THREE.MeshToonMaterial({ color: 0x16a34a });
+
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 1.6, 7), trunkMat);
+      trunk.position.y = 0.8;
       trunk.castShadow = true;
       tree.add(trunk);
 
-      // Cônes de feuillage étagés
-      const foliageMat = new THREE.MeshToonMaterial({ color: 0x15803d });
-      for (let k = 0; k < 3; k++) {
-        const coneGeo = new THREE.ConeGeometry(1.6 - k * 0.35, 1.6, 6);
-        const cone = new THREE.Mesh(coneGeo, foliageMat);
-        cone.position.y = 1.6 + k * 0.9;
+      const levels = 3;
+      for (let l = 0; l < levels; l++) {
+        const cone = new THREE.Mesh(
+          new THREE.ConeGeometry(1.45 - l * 0.32, 2.1 - l * 0.25, 7),
+          l % 2 === 0 ? leavesMat : leavesLightMat
+        );
+        cone.position.y = 2.0 + l * 1.15;
         cone.castShadow = true;
         tree.add(cone);
       }
+      const scale = 0.85 + Math.random() * 0.5;
+      tree.scale.set(scale, scale, scale);
       return tree;
     }
 
-    // ─── CYCLISTE 3D STYLISÉ (CARTOON / RIGGED LIMBS) ────────────────────────
-    function createCartoonCyclist() {
+    function createRoadStream() {
+      const segmentCount = 45;
+      const segmentLength = 4.0;
+
+      const asphaltMat = new THREE.MeshToonMaterial({ color: 0x334155 });
+      const shoulderMat = new THREE.MeshToonMaterial({ color: 0x94a3b8 });
+      const edgeLineMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
+      const centerLineMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+      const postMat = new THREE.MeshToonMaterial({ color: 0xf8fafc });
+      const reflectorMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+
+      for (let i = 0; i < segmentCount; i++) {
+        const segGroup = new THREE.Group();
+
+        // Accotement stabilisé
+        const shoulder = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.06, segmentLength + 0.08), shoulderMat);
+        shoulder.position.y = -0.02;
+        shoulder.receiveShadow = true;
+        segGroup.add(shoulder);
+
+        // Ruban d'asphalte
+        const road = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.08, segmentLength + 0.08), asphaltMat);
+        road.position.y = 0.0;
+        road.receiveShadow = true;
+        segGroup.add(road);
+
+        // Lignes de rive blanches continues
+        const leftEdge = new THREE.Mesh(new THREE.PlaneGeometry(0.12, segmentLength + 0.08), edgeLineMat);
+        leftEdge.rotation.x = -Math.PI / 2;
+        leftEdge.position.set(-3.1, 0.045, 0);
+        segGroup.add(leftEdge);
+
+        const rightEdge = leftEdge.clone();
+        rightEdge.position.x = 3.1;
+        segGroup.add(rightEdge);
+
+        // Ligne médiane jaune discontinue
+        if (i % 2 === 0) {
+          const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 1.8), centerLineMat);
+          dash.rotation.x = -Math.PI / 2;
+          dash.position.y = 0.046;
+          segGroup.add(dash);
+        }
+
+        // Bornes kilométriques / délinéateurs de montagne
+        if (i % 3 === 0) {
+          for (let side of [-1, 1]) {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.65, 0.1), postMat);
+            post.position.set(side * 3.65, 0.32, 0);
+            segGroup.add(post);
+
+            const ref = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.12, 0.11), reflectorMat);
+            ref.position.set(side * 3.65, 0.52, 0);
+            segGroup.add(ref);
+          }
+        }
+
+        // Sapins et rochers sur les bas-côtés
+        if (i % 2 === 0) {
+          const leftTree = createPineTree();
+          leftTree.position.set(-5.8 - Math.random() * 9, 0, (Math.random() - 0.5) * 2);
+          segGroup.add(leftTree);
+
+          const rightTree = createPineTree();
+          rightTree.position.set(5.8 + Math.random() * 9, 0, (Math.random() - 0.5) * 2);
+          segGroup.add(rightTree);
+        }
+
+        segGroup.userData = { baseZ: i * segmentLength - 12 };
+        segGroup.position.z = segGroup.userData.baseZ;
+        roadSegments.push(segGroup);
+        scene.add(segGroup);
+      }
+    }
+
+    // Portique lumineux d'intervalle façon Zwift
+    function createWorkoutArch() {
+      workoutArch = new THREE.Group();
+      const archPillarMat = new THREE.MeshToonMaterial({ color: 0x0f172a });
+      const archGlowMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+
+      // Piliers gauche et droit
+      const leftPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 4.8, 12), archPillarMat);
+      leftPillar.position.set(-3.6, 2.4, 0);
+      workoutArch.add(leftPillar);
+
+      const rightPillar = leftPillar.clone();
+      rightPillar.position.x = 3.6;
+      workoutArch.add(rightPillar);
+
+      // Bandeau supérieur lumineux
+      const topBanner = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.75, 0.35), archPillarMat);
+      topBanner.position.set(0, 4.6, 0);
+      workoutArch.add(topBanner);
+
+      const neonStrip = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.45, 0.4), archGlowMat);
+      neonStrip.position.set(0, 4.6, 0);
+      workoutArch.add(neonStrip);
+
+      workoutArch.position.z = 85;
+      workoutArch.visible = true;
+      scene.add(workoutArch);
+    }
+
+    // ─── CRÉATION D'UNE ROUE DE VÉLO RÉALISTE (DANS LE PLAN YZ) ───────────────
+    function createBikeWheel(radius) {
+      const wheelGroup = new THREE.Group();
+
+      // Pneu noir (Torus tourné de 90° sur Y pour être dans le plan YZ de la route !)
+      const tireGeo = new THREE.TorusGeometry(radius, 0.028, 12, 32);
+      tireGeo.rotateY(Math.PI / 2);
+      const tireMat = new THREE.MeshToonMaterial({ color: 0x0f172a });
+      const tire = new THREE.Mesh(tireGeo, tireMat);
+      tire.castShadow = true;
+      wheelGroup.add(tire);
+
+      // Jante Carbone Profil Haut
+      const rimGeo = new THREE.TorusGeometry(radius - 0.032, 0.022, 8, 32);
+      rimGeo.rotateY(Math.PI / 2);
+      const rimMat = new THREE.MeshToonMaterial({ color: 0x1e293b });
+      const rim = new THREE.Mesh(rimGeo, rimMat);
+      wheelGroup.add(rim);
+
+      // Marquages colorés sur la jante pour bien voir la rotation de la roue !
+      const decalMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+      for (let d = 0; d < 3; d++) {
+        const angle = (d * Math.PI * 2) / 3;
+        const decal = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.12), decalMat);
+        decal.position.set(0, Math.sin(angle) * (radius - 0.035), Math.cos(angle) * (radius - 0.035));
+        decal.rotation.x = -angle;
+        wheelGroup.add(decal);
+      }
+
+      // Moyeu central (Axe X)
+      const hubGeo = new THREE.CylinderGeometry(0.028, 0.028, 0.11, 12);
+      hubGeo.rotateZ(Math.PI / 2);
+      const hubMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.2 });
+      const hub = new THREE.Mesh(hubGeo, hubMat);
+      wheelGroup.add(hub);
+
+      // Rayons métalliques (dans le plan YZ) pour visualiser parfaitement le roulement
+      const spokeMat = new THREE.MeshBasicMaterial({ color: 0x94a3b8 });
+      const spokeCount = 12;
+      for (let i = 0; i < spokeCount; i++) {
+        const angle = (i * Math.PI) / (spokeCount / 2);
+        const spokeGeo = new THREE.CylinderGeometry(0.003, 0.003, (radius - 0.04) * 2, 6);
+        const spoke = new THREE.Mesh(spokeGeo, spokeMat);
+        spoke.rotation.x = angle;
+        wheelGroup.add(spoke);
+      }
+
+      return wheelGroup;
+    }
+
+    // Helper pour relier deux points 3D par un tube de cadre de vélo
+    function createTubeBetween(p1, p2, thickness, material) {
+      const dir = new THREE.Vector3().subVectors(p2, p1);
+      const len = dir.length();
+      const geo = new THREE.CylinderGeometry(thickness, thickness, len, 10);
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.position.copy(p1).add(p2).multiplyScalar(0.5);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+      mesh.castShadow = true;
+      return mesh;
+    }
+
+    // ─── VÉLO DE COURSE & AVATAR CYCLISTE 3D (AXE Z) ─────────────────────────
+    function createCartoonCyclistAndBike() {
       cyclistGroup = new THREE.Group();
-
-      // ─── LE VÉLO DE ROUTE ───
       bikeFrame = new THREE.Group();
-      const frameMat = new THREE.MeshToonMaterial({ color: 0xf97316 }); // Orange vif dynamique
-      const darkMat = new THREE.MeshToonMaterial({ color: 0x0f172a }); // Noir carbone
-      const chromeMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.2 });
 
-      // Tube diagonal + horizontal
-      const tubeGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.0, 8);
-      const topTube = new THREE.Mesh(tubeGeo, frameMat);
-      topTube.rotation.z = Math.PI / 2.3;
-      topTube.position.set(0, 0.72, 0.15);
-      bikeFrame.add(topTube);
+      const frameMat = new THREE.MeshToonMaterial({ color: 0xf97316 }); // Cadre Orange Carbone
+      const darkMat = new THREE.MeshToonMaterial({ color: 0x0f172a });  // Carbone mat
+      const chromeMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.8, roughness: 0.2 });
 
-      const downTube = new THREE.Mesh(tubeGeo, frameMat);
-      downTube.rotation.z = Math.PI / 3.8;
-      downTube.position.set(0, 0.52, 0.32);
-      bikeFrame.add(downTube);
+      const wheelRadius = 0.34;
+      const rearAxle = new THREE.Vector3(0, wheelRadius, -0.52);
+      const frontAxle = new THREE.Vector3(0, wheelRadius, 0.54);
+      const bottomBracket = new THREE.Vector3(0, 0.29, -0.08);
+      const seatNode = new THREE.Vector3(0, 0.82, -0.24);
+      const headTubeTop = new THREE.Vector3(0, 0.84, 0.40);
+      const headTubeBottom = new THREE.Vector3(0, 0.68, 0.44);
 
-      // Tube de selle
-      const seatTube = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.7, 8), frameMat);
-      seatTube.position.set(0, 0.62, -0.2);
-      bikeFrame.add(seatTube);
+      // 1. Roues Avant et Arrière (parfaitement orientées dans le sens de la marche)
+      frontWheelGroup = createBikeWheel(wheelRadius);
+      frontWheelGroup.position.copy(frontAxle);
+      bikeFrame.add(frontWheelGroup);
 
-      // Selle
-      const saddleGeo = new THREE.BoxGeometry(0.12, 0.05, 0.28);
-      const saddle = new THREE.Mesh(saddleGeo, darkMat);
-      saddle.position.set(0, 0.98, -0.25);
+      rearWheelGroup = createBikeWheel(wheelRadius);
+      rearWheelGroup.position.copy(rearAxle);
+      bikeFrame.add(rearWheelGroup);
+
+      // 2. Triangles du Cadre de Vélo (dans le plan YZ !)
+      // Tube horizontal (Top tube)
+      bikeFrame.add(createTubeBetween(seatNode, headTubeTop, 0.024, frameMat));
+      // Tube diagonal (Down tube)
+      bikeFrame.add(createTubeBetween(bottomBracket, headTubeBottom, 0.028, frameMat));
+      // Tube de selle (Seat tube)
+      bikeFrame.add(createTubeBetween(bottomBracket, seatNode, 0.024, frameMat));
+      // Douille de direction (Head tube)
+      bikeFrame.add(createTubeBetween(headTubeBottom, headTubeTop, 0.026, frameMat));
+
+      // Haubans et bases arrière (Dual stays gauche/droite)
+      for (let side of [-0.045, 0.045]) {
+        const rAxleSide = new THREE.Vector3(side, rearAxle.y, rearAxle.z);
+        const bbSide = new THREE.Vector3(side * 0.6, bottomBracket.y, bottomBracket.z);
+        const seatSide = new THREE.Vector3(side * 0.4, seatNode.y - 0.05, seatNode.z);
+        bikeFrame.add(createTubeBetween(bbSide, rAxleSide, 0.014, frameMat));
+        bikeFrame.add(createTubeBetween(seatSide, rAxleSide, 0.012, frameMat));
+
+        // Fourche avant
+        const fAxleSide = new THREE.Vector3(side, frontAxle.y, frontAxle.z);
+        const forkCrown = new THREE.Vector3(side * 0.4, headTubeBottom.y, headTubeBottom.z);
+        bikeFrame.add(createTubeBetween(forkCrown, fAxleSide, 0.015, frameMat));
+      }
+
+      // Tige de selle et Selle ergonomique
+      const seatPostTop = new THREE.Vector3(0, 0.96, -0.28);
+      bikeFrame.add(createTubeBetween(seatNode, seatPostTop, 0.018, darkMat));
+      const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.04, 0.26), darkMat);
+      saddle.position.copy(seatPostTop);
       bikeFrame.add(saddle);
 
-      // Guidon route
-      const barGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.42, 8);
-      const handlebar = new THREE.Mesh(barGeo, darkMat);
+      // Potence et Cintre de route (Guidon)
+      const stemEnd = new THREE.Vector3(0, 0.90, 0.48);
+      bikeFrame.add(createTubeBetween(headTubeTop, stemEnd, 0.018, darkMat));
+      const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.42, 10), darkMat);
       handlebar.rotation.z = Math.PI / 2;
-      handlebar.position.set(0, 0.92, 0.58);
+      handlebar.position.copy(stemEnd);
       bikeFrame.add(handlebar);
 
-      // Roues (Avant et Arrière)
-      const wheelGeo = new THREE.TorusGeometry(0.34, 0.03, 8, 24);
-      const wheelMat = new THREE.MeshToonMaterial({ color: 0x1e293b });
+      // Cocottes de frein
+      for (let side of [-0.19, 0.19]) {
+        const hood = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.07, 0.09), darkMat);
+        hood.position.set(side, 0.92, 0.53);
+        bikeFrame.add(hood);
+      }
 
-      frontWheel = new THREE.Mesh(wheelGeo, wheelMat);
-      frontWheel.position.set(0, 0.35, 0.65);
-      bikeFrame.add(frontWheel);
-
-      rearWheel = new THREE.Mesh(wheelGeo, wheelMat);
-      rearWheel.position.set(0, 0.35, -0.65);
-      bikeFrame.add(rearWheel);
-
-      // Pédalier & Manivelles
+      // 3. Pédalier & Manivelles (Crankset)
       crankset = new THREE.Group();
-      crankset.position.set(0, 0.35, -0.15); // Axe boîtier de pédalier
+      crankset.position.copy(bottomBracket);
 
-      const chainring = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 16), chromeMat);
+      const chainring = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.10, 0.015, 20), darkMat);
       chainring.rotation.z = Math.PI / 2;
+      chainring.position.x = 0.05;
       crankset.add(chainring);
 
-      // Manivelle Gauche + Pédale Gauche
-      const crankLeft = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.18, 0.03), chromeMat);
-      crankLeft.position.set(-0.1, 0.09, 0);
-      crankset.add(crankLeft);
+      // Manivelle Gauche (vers +Y quand angle = 0)
+      const crankArmGeo = new THREE.BoxGeometry(0.018, 0.17, 0.032);
+      const leftCrank = new THREE.Mesh(crankArmGeo, chromeMat);
+      leftCrank.position.set(-0.07, 0.08, 0);
+      crankset.add(leftCrank);
 
-      leftPedal = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.06), darkMat);
-      leftPedal.position.set(-0.14, 0.18, 0);
-      crankset.add(leftPedal);
-
-      // Manivelle Droite + Pédale Droite (opposée à 180°)
-      const crankRight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.18, 0.03), chromeMat);
-      crankRight.position.set(0.1, -0.09, 0);
-      crankset.add(crankRight);
-
-      rightPedal = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.06), darkMat);
-      rightPedal.position.set(0.14, -0.18, 0);
-      crankset.add(rightPedal);
+      // Manivelle Droite (vers -Y quand angle = 0)
+      const rightCrank = new THREE.Mesh(crankArmGeo, chromeMat);
+      rightCrank.position.set(0.07, -0.08, 0);
+      crankset.add(rightCrank);
 
       bikeFrame.add(crankset);
       cyclistGroup.add(bikeFrame);
 
-      // ─── LE CORPS DU CYCLISTE ───
-      const skinMat = new THREE.MeshToonMaterial({ color: 0xfbcfe8 }); // Teint peau cartoon
-      const jerseyMat = new THREE.MeshToonMaterial({ color: 0x0284c7 }); // Maillot bleu équipe
-      const shortsMat = new THREE.MeshToonMaterial({ color: 0x0f172a }); // Cuissard noir
-      const helmetMat = new THREE.MeshToonMaterial({ color: 0x38bdf8 }); // Casque bleu vif
+      // ─── 4. LE CORPS DU CYCLISTE CARTOON STYLISÉ ───
+      const skinMat = new THREE.MeshToonMaterial({ color: 0xfdba74 });   // Peau dorée chaleureuse
+      const jerseyMat = new THREE.MeshToonMaterial({ color: 0x0284c7 }); // Maillot Bleu Pro Fogcycling
+      const stripeMat = new THREE.MeshToonMaterial({ color: 0xfacc15 }); // Bande jaune maillot
+      const shortsMat = new THREE.MeshToonMaterial({ color: 0x0f172a }); // Cuissard Noir
+      const helmetMat = new THREE.MeshToonMaterial({ color: 0xf8fafc }); // Casque Blanc Aero
+      const shoeMat = new THREE.MeshToonMaterial({ color: 0xffffff });   // Chaussures blanches
 
-      // Buste / Torso penché vers l'avant
-      const torsoGeo = new THREE.BoxGeometry(0.32, 0.44, 0.22);
-      const torso = new THREE.Mesh(torsoGeo, jerseyMat);
-      torso.position.set(0, 1.18, -0.02);
-      torso.rotation.x = Math.PI / 4.2; // Angle aérodynamique
-      cyclistGroup.add(torso);
+      // Bassin / Hanches sur la selle
+      const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.145, 14, 14), shortsMat);
+      pelvis.scale.set(1.1, 0.85, 1.0);
+      pelvis.position.set(0, 1.02, -0.25);
+      cyclistGroup.add(pelvis);
 
-      // Tête & Casque
-      const headGeo = new THREE.SphereGeometry(0.13, 12, 12);
-      const head = new THREE.Mesh(headGeo, skinMat);
-      head.position.set(0, 1.48, 0.2);
-      cyclistGroup.add(head);
+      // Buste / Torso aérodynamique
+      const torsoGroup = new THREE.Group();
+      torsoGroup.position.set(0, 1.18, -0.06);
+      torsoGroup.rotation.x = Math.PI / 3.4; // Penché vers le guidon
 
-      const helmetGeo = new THREE.SphereGeometry(0.145, 12, 12);
-      const helmet = new THREE.Mesh(helmetGeo, helmetMat);
-      helmet.scale.set(1.0, 0.9, 1.25);
-      helmet.position.set(0, 1.51, 0.2);
-      cyclistGroup.add(helmet);
+      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.13, 0.44, 14), jerseyMat);
+      torso.scale.set(1.15, 1.0, 0.82);
+      torso.castShadow = true;
+      torsoGroup.add(torso);
 
-      // Lunettes de soleil de sport
-      const glassesGeo = new THREE.BoxGeometry(0.18, 0.04, 0.06);
-      const glasses = new THREE.Mesh(glassesGeo, new THREE.MeshBasicMaterial({ color: 0x0284c7 }));
-      glasses.position.set(0, 1.48, 0.32);
-      cyclistGroup.add(glasses);
+      // Bande distinctive sur le dos du maillot
+      const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.153, 0.142, 0.12, 14), stripeMat);
+      stripe.scale.set(1.15, 1.0, 0.83);
+      stripe.position.y = 0.04;
+      torsoGroup.add(stripe);
 
-      // Bras (vers le guidon)
-      const armGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.48, 8);
-      const leftArm = new THREE.Mesh(armGeo, skinMat);
-      leftArm.position.set(-0.18, 1.05, 0.28);
-      leftArm.rotation.x = Math.PI / 3.2;
-      leftArm.rotation.z = -0.15;
-      cyclistGroup.add(leftArm);
+      // Épaules arrondies
+      const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 14), jerseyMat);
+      shoulders.scale.set(1.25, 0.7, 0.85);
+      shoulders.position.y = 0.20;
+      torsoGroup.add(shoulders);
 
-      const rightArm = leftArm.clone();
-      rightArm.position.x = 0.18;
-      rightArm.rotation.z = 0.15;
-      cyclistGroup.add(rightArm);
+      cyclistGroup.add(torsoGroup);
 
-      // ─── JAMBES ANIMÉES (CINÉMATIQUE INVERSE DES PÉDALES) ───
-      const legMat = skinMat;
-      const legGeo = new THREE.CylinderGeometry(0.05, 0.045, 0.38, 8);
+      // Tête & Casque Aérodynamique
+      const headGroup = new THREE.Group();
+      headGroup.position.set(0, 1.44, 0.16);
+
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.12, 10), skinMat);
+      neck.position.set(0, -0.08, -0.03);
+      headGroup.add(neck);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 16, 16), skinMat);
+      headGroup.add(head);
+
+      const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.132, 16, 16), helmetMat);
+      helmet.scale.set(1.02, 0.85, 1.28);
+      helmet.position.set(0, 0.04, -0.01);
+      helmet.castShadow = true;
+      headGroup.add(helmet);
+
+      // Visière / Lunettes de vitesse réfléchissantes
+      const visor = new THREE.Mesh(
+        new THREE.BoxGeometry(0.19, 0.055, 0.08),
+        new THREE.MeshBasicMaterial({ color: 0xf97316 })
+      );
+      visor.position.set(0, 0.01, 0.09);
+      headGroup.add(visor);
+
+      cyclistGroup.add(headGroup);
+
+      // Bras reliés des épaules aux cocottes du guidon
+      for (let side of [-1, 1]) {
+        const shoulderPos = new THREE.Vector3(side * 0.18, 1.30, 0.10);
+        const elbowPos = new THREE.Vector3(side * 0.20, 1.08, 0.32);
+        const handPos = new THREE.Vector3(side * 0.19, 0.93, 0.52);
+
+        // Manche courte du maillot
+        cyclistGroup.add(createTubeBetween(shoulderPos, shoulderPos.clone().lerp(elbowPos, 0.45), 0.048, jerseyMat));
+        // Bras & Avant-bras
+        cyclistGroup.add(createTubeBetween(shoulderPos.clone().lerp(elbowPos, 0.4), elbowPos, 0.040, skinMat));
+        cyclistGroup.add(createTubeBetween(elbowPos, handPos, 0.035, skinMat));
+
+        // Gant sur les cocottes
+        const glove = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 10), darkMat);
+        glove.position.copy(handPos);
+        cyclistGroup.add(glove);
+      }
+
+      // ─── 5. JAMBES ARTICULÉES EN CINÉMATIQUE INVERSE (CUISSE + GENOU + MOLLET + CHAUSSURE) ───
+      const thighGeo = new THREE.CylinderGeometry(0.068, 0.052, 0.36, 12);
+      const calfGeo = new THREE.CylinderGeometry(0.050, 0.036, 0.36, 12);
+      const kneeGeo = new THREE.SphereGeometry(0.052, 10, 10);
+      const shoeGeo = new THREE.BoxGeometry(0.085, 0.055, 0.19);
 
       // Jambe Gauche
-      leftThigh = new THREE.Mesh(legGeo, shortsMat);
-      leftCalf = new THREE.Mesh(legGeo, legMat);
-      leftFoot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.16), darkMat);
-      cyclistGroup.add(leftThigh);
-      cyclistGroup.add(leftCalf);
-      cyclistGroup.add(leftFoot);
+      leftThigh = new THREE.Mesh(thighGeo, shortsMat);
+      leftKnee = new THREE.Mesh(kneeGeo, skinMat);
+      leftCalf = new THREE.Mesh(calfGeo, skinMat);
+      leftFoot = new THREE.Mesh(shoeGeo, shoeMat);
+      leftThigh.castShadow = true;
+      leftCalf.castShadow = true;
+      cyclistGroup.add(leftThigh, leftKnee, leftCalf, leftFoot);
 
       // Jambe Droite
-      rightThigh = new THREE.Mesh(legGeo, shortsMat);
-      rightCalf = new THREE.Mesh(legGeo, legMat);
-      rightFoot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.16), darkMat);
-      cyclistGroup.add(rightThigh);
-      cyclistGroup.add(rightCalf);
-      cyclistGroup.add(rightFoot);
+      rightThigh = new THREE.Mesh(thighGeo, shortsMat);
+      rightKnee = new THREE.Mesh(kneeGeo, skinMat);
+      rightCalf = new THREE.Mesh(calfGeo, skinMat);
+      rightFoot = new THREE.Mesh(shoeGeo, shoeMat);
+      rightThigh.castShadow = true;
+      rightCalf.castShadow = true;
+      cyclistGroup.add(rightThigh, rightKnee, rightCalf, rightFoot);
 
       scene.add(cyclistGroup);
     }
 
-    // ─── MISE À JOUR DE LA CINÉMATIQUE DE PÉDALAGE ───────────────────────────
+    // ─── CINÉMATIQUE DE PÉDALAGE ET ROTATION EXACTE DES ROUES ────────────────
     function updatePedaling(delta) {
-      // Transition fluide des valeurs cibles
-      currentWatts += (targetWatts - currentWatts) * 0.1;
-      currentCadence += (targetCadence - currentCadence) * 0.1;
-      currentSpeed += (targetSpeed - currentSpeed) * 0.1;
+      currentWatts += (targetWatts - currentWatts) * 0.12;
+      currentCadence += (targetCadence - currentCadence) * 0.12;
+      currentSpeed += (targetSpeed - currentSpeed) * 0.12;
 
-      // Rotation du pédalier selon la cadence réelle (RPM -> radians/s)
-      const rps = (currentCadence / 60.0);
+      // 1. Rotation du pédalier (dans le sens vers l'avant : +X rotation)
+      const rps = currentCadence / 60.0;
       pedalAngle += rps * Math.PI * 2 * delta;
       crankset.rotation.x = pedalAngle;
 
-      // Rotation des roues selon la vitesse réelle
-      const wheelCircumference = 2.1; // mètres (roue 700x25c)
-      const wheelRps = currentSpeed / wheelCircumference;
-      frontWheel.rotation.x += wheelRps * Math.PI * 2 * delta;
-      rearWheel.rotation.x += wheelRps * Math.PI * 2 * delta;
+      // 2. Rotation des roues autour de leur axe X (roulement naturel vers l'avant !)
+      const wheelCircumference = 2.136; // 700c
+      const wheelAngularVel = (currentSpeed / wheelCircumference) * Math.PI * 2;
+      frontWheelGroup.rotation.x += wheelAngularVel * delta;
+      rearWheelGroup.rotation.x += wheelAngularVel * delta;
 
-      // ─── ANIMATION DES JAMBES RELIÉES AUX PÉDALES ───
-      const hipLeft = new THREE.Vector3(-0.12, 0.95, -0.2);
-      const hipRight = new THREE.Vector3(0.12, 0.95, -0.2);
+      // 3. Cinématique Inverse (IK) des deux jambes dans le plan YZ
+      const hipL = new THREE.Vector3(-0.11, 1.00, -0.25);
+      const hipR = new THREE.Vector3(0.11, 1.00, -0.25);
 
-      // Calcul des coordonnées mondiales des pédales
-      const pedalRadius = 0.17;
-      const pedalLY = 0.35 + Math.sin(pedalAngle) * pedalRadius;
-      const pedalLZ = -0.15 + Math.cos(pedalAngle) * pedalRadius;
-      const pedalRY = 0.35 + Math.sin(pedalAngle + Math.PI) * pedalRadius;
-      const pedalRZ = -0.15 + Math.cos(pedalAngle + Math.PI) * pedalRadius;
+      const crankRadius = 0.165;
+      // Quand crankset tourne de pedalAngle autour de X :
+      // Le point (0, R, 0) devient (0, R*cos(a), R*sin(a))
+      const pedalLY = 0.29 + Math.cos(pedalAngle) * crankRadius;
+      const pedalLZ = -0.08 + Math.sin(pedalAngle) * crankRadius;
 
-      // Positionnement des cuisses & mollets (Cinématique 2 segments)
-      animateLeg(hipLeft, new THREE.Vector3(-0.14, pedalLY, pedalLZ), leftThigh, leftCalf, leftFoot, 1);
-      animateLeg(hipRight, new THREE.Vector3(0.14, pedalRY, pedalRZ), rightThigh, rightCalf, rightFoot, -1);
+      const pedalRY = 0.29 + Math.cos(pedalAngle + Math.PI) * crankRadius;
+      const pedalRZ = -0.08 + Math.sin(pedalAngle + Math.PI) * crankRadius;
 
-      // Balancement naturel du corps en cadence
-      const sway = Math.sin(pedalAngle) * 0.025;
-      cyclistGroup.rotation.z = sway;
+      solveLegIK(hipL, new THREE.Vector3(-0.11, pedalLY, pedalLZ), leftThigh, leftKnee, leftCalf, leftFoot);
+      solveLegIK(hipR, new THREE.Vector3(0.11, pedalRY, pedalRZ), rightThigh, rightKnee, rightCalf, rightFoot);
 
-      // Posture en Danseuse si grosse puissance ou forte pente
-      if (currentWatts > 240 || currentSlope > 7.0) {
-        cyclistGroup.position.y = 0.08; // Se lève de la selle
-        cyclistGroup.position.z = 0.05;
+      // 4. Dynamique de danseuse et balancement du vélo à haute puissance
+      const swayAngle = Math.sin(pedalAngle) * (currentWatts > 240 ? 0.055 : 0.02);
+      cyclistGroup.rotation.z = swayAngle;
+      if (currentWatts > 260) {
+        cyclistGroup.position.y = 0.06;
       } else {
         cyclistGroup.position.y = 0.0;
-        cyclistGroup.position.z = 0.0;
       }
     }
 
-    function animateLeg(hip, pedal, thigh, calf, foot, side) {
-      // Position genou intermédiaire
-      const mid = new THREE.Vector3().addVectors(hip, pedal).multiplyScalar(0.5);
-      mid.x += side * 0.04;
-      mid.y += 0.12; // Le genou avance et monte
-      mid.z += 0.08;
+    // Résolution géométrique exacte du genou (Loi des cosinus 2 segments dans le plan YZ)
+    function solveLegIK(hip, ankle, thighMesh, kneeMesh, calfMesh, footMesh) {
+      const L1 = 0.37; // Longueur fémur
+      const L2 = 0.37; // Longueur tibia
 
-      // Cuisse (Hanche -> Genou)
-      thigh.position.copy(hip).add(mid).multiplyScalar(0.5);
-      thigh.lookAt(mid);
-      thigh.rotateX(Math.PI / 2);
+      const dy = ankle.y - hip.y;
+      const dz = ankle.z - hip.z;
+      const dist = Math.min(Math.sqrt(dy * dy + dz * dz), L1 + L2 - 0.005);
 
-      // Mollet (Genou -> Pédale)
-      calf.position.copy(mid).add(pedal).multiplyScalar(0.5);
-      calf.lookAt(pedal);
-      calf.rotateX(Math.PI / 2);
+      // Angle entre hanche->cheville et l'horizontale Z
+      const baseAngle = Math.atan2(dy, dz);
+      // Angle interne du triangle hanche-genou-cheville
+      const cosAlpha = (L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist);
+      const alpha = Math.acos(Math.max(-1, Math.min(1, cosAlpha)));
 
-      // Pied sur la pédale
-      foot.position.copy(pedal);
-      foot.position.y += 0.02;
+      // Le genou pointe toujours vers l'avant (+Z / +Y)
+      const kneeAngle = baseAngle + alpha;
+      const kneePos = new THREE.Vector3(
+        hip.x,
+        hip.y + Math.sin(kneeAngle) * L1,
+        hip.z + Math.cos(kneeAngle) * L1
+      );
+
+      // Positionnement du genou
+      kneeMesh.position.copy(kneePos);
+
+      // Orientation de la cuisse (Hanche -> Genou)
+      const thighDir = new THREE.Vector3().subVectors(kneePos, hip);
+      thighMesh.position.copy(hip).add(kneePos).multiplyScalar(0.5);
+      thighMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), thighDir.normalize());
+
+      // Orientation du mollet (Genou -> Cheville)
+      const calfDir = new THREE.Vector3().subVectors(ankle, kneePos);
+      calfMesh.position.copy(kneePos).add(ankle).multiplyScalar(0.5);
+      calfMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), calfDir.normalize());
+
+      // Chaussure sur la pédale
+      footMesh.position.set(ankle.x, ankle.y - 0.01, ankle.z + 0.04);
     }
 
-    // ─── DÉFILEMENT DE LA ROUTE & DÉCORS ──────────────────────────────────────
+    // ─── DÉFILEMENT DE LA ROUTE SINUEUSE & ARCHES 3D ─────────────────────────
     function updateWorld(delta) {
       const moveDistance = currentSpeed * delta;
       distanceTraveled += moveDistance;
 
       const segmentLength = 4.0;
       const totalRoadLength = roadSegments.length * segmentLength;
+      const riderCurveX = getRoadCurveX(distanceTraveled);
+      const riderSlopeX = getRoadCurveDerivative(distanceTraveled);
+
+      // Positionner le cycliste au centre de la route sinueuse
+      cyclistGroup.position.x = riderCurveX;
+      cyclistGroup.rotation.y = Math.atan(riderSlopeX) * 0.65;
 
       for (let i = 0; i < roadSegments.length; i++) {
         const seg = roadSegments[i];
         seg.position.z -= moveDistance;
 
-        // Recyclage des segments de route qui passent derrière la caméra
         if (seg.position.z < -14.0) {
           seg.position.z += totalRoadLength;
         }
 
-        // Légère courbure douce de montagne
-        const curveOffset = Math.sin((seg.position.z + distanceTraveled) * 0.015) * 2.5;
-        seg.position.x = curveOffset;
+        const worldZ = distanceTraveled + seg.position.z;
+        seg.position.x = getRoadCurveX(worldZ);
+        seg.rotation.y = Math.atan(getRoadCurveDerivative(worldZ));
       }
 
-      // Dérive douce des nuages
+      // Défilement du portique d'intervalle
+      if (workoutArch && workoutArch.visible) {
+        workoutArch.position.z -= moveDistance;
+        if (workoutArch.position.z < -10) {
+          workoutArch.position.z = 120; // Prochain portique à 120m
+        }
+        const archWorldZ = distanceTraveled + workoutArch.position.z;
+        workoutArch.position.x = getRoadCurveX(archWorldZ);
+        workoutArch.rotation.y = Math.atan(getRoadCurveDerivative(archWorldZ));
+      }
+
+      // Nuages
       for (let c = 0; c < cloudPool.length; c++) {
-        cloudPool[c].position.x += delta * 0.8;
-        if (cloudPool[c].position.x > 80) cloudPool[c].position.x = -80;
+        cloudPool[c].position.x += delta * 0.7;
+        if (cloudPool[c].position.x > 95) cloudPool[c].position.x = -95;
       }
 
-      // Amorti fluide de la caméra
-      camera.position.x = Math.sin(distanceTraveled * 0.015) * 1.2;
-      camera.lookAt(0, 1.2, 5.0);
+      // Caméra suiveuse souple derrière le cycliste
+      camera.position.x += (riderCurveX - camera.position.x) * 0.08;
+      camera.lookAt(riderCurveX + riderSlopeX * 3.0, 1.25, 4.5);
     }
 
-    // ─── BOUCLE DE RENDU PRINCIPALE (60 FPS) ─────────────────────────────────
     function animate() {
       requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.1);
@@ -478,11 +717,10 @@
     }
 
     // ─── PONT JAVASCRIPT AVEC FLUTTER ─────────────────────────────────────────
-    // Appelé en continu par Flutter depuis le BleSensorProvider
     window.setRiderTelemetry = function(watts, cadence, speedKmh, slope, gear) {
       targetWatts = Number(watts) || 0;
       targetCadence = Number(cadence) || 0;
-      targetSpeed = (Number(speedKmh) || 0) / 3.6; // Conversion km/h -> m/s
+      targetSpeed = (Number(speedKmh) || 0) / 3.6;
       currentSlope = Number(slope) || 0.0;
       currentGear = Number(gear) || 10;
     };

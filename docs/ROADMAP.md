@@ -29,13 +29,15 @@ Le développement de Fogcycling suit une méthodologie rigoureuse en 8 phases s�
 
 ---
 
-## Phase 3 — Moteur d'Entraînement Structuré & Résistance Dynamique
+## Phase 3 — Moteur d'Entraînement Structuré & Résistance Dynamique — [IMPLÉMENTÉ & LIVRÉ ✅]
+- **Statut** : **Livré dans Fogcycling.apk le 23/10/2026**.
 - **Objectif** : Permettre d'effectuer une séance d'entraînement complète par intervalles en mode ERG et en mode simulation de pente.
-- **Tâches Clés** :
-  1. Créer le moteur d'exécution d'intervalles (Échauffement, Seuil, Récupération, PMA).
-  2. Connecter l'asservissement automatique du frein au franchissement de chaque bloc d'entraînement.
-  3. Implémenter les commandes de changement de braquet virtuel pour le Zwift Cog (touches tactiles + / - et raccourcis clavier/gamepad BLE).
-- **Livrable** : Séance d'entraînement de 20 minutes exécutable de bout en bout sur le Zwift Hub One.
+- **Tâches Clés Réalisées** :
+  1. Création du moteur d'intervalles (`workout_models.dart` & `workout_provider.dart`) avec calcul dynamique des Watts selon la FTP de l'athlète (Échauffement, Sweet Spot, Seuil Z4, Récupération Z1, PMA Z5).
+  2. Connexion de l'asservissement automatique du frein FTMS (`setTargetPower`) au franchissement de chaque bloc d'entraînement, sécurisé par le `SafetyLimiter`.
+  3. Catalogue de 3 séances Coach Stravos intégrées (dont *Test Express ERG 5 min* pour validation rapide).
+  4. Bandeau interactif d'intervalle dans le HUD avec graphe de progression, conseils en direct de Coach Stravos, compte à rebours et boutons saut de bloc (`|<`, `Pause`, `>|`).
+  5. Correction géométrique complète des roues 3D (plan YZ avec jantes carbone, moyeux et 12 rayons) et du cadre dans le moteur Three.js v2.0 + portiques lumineux 3D sur la route.
 
 ---
 
