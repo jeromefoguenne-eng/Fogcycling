@@ -11,6 +11,8 @@ class Cycling3dView extends StatefulWidget {
   final double slopePercent;
   final int gear;
   final String themeKey;
+  final int bikeHexColor;
+  final int jerseyHexColor;
 
   const Cycling3dView({
     super.key,
@@ -20,6 +22,8 @@ class Cycling3dView extends StatefulWidget {
     required this.slopePercent,
     required this.gear,
     this.themeKey = 'ventoux_lunar',
+    this.bikeHexColor = 0xFFF97316,
+    this.jerseyHexColor = 0xFF0284C7,
   });
 
   @override
@@ -31,6 +35,8 @@ class _Cycling3dViewState extends State<Cycling3dView> {
   bool _isPageLoaded = false;
   DateTime _lastTelemetryUpdate = DateTime.fromMillisecondsSinceEpoch(0);
   String _lastSentTheme = '';
+  int _lastBikeColor = 0;
+  int _lastJerseyColor = 0;
 
   @override
   void initState() {
@@ -61,7 +67,9 @@ class _Cycling3dViewState extends State<Cycling3dView> {
     super.didUpdateWidget(oldWidget);
     final now = DateTime.now();
     if (now.difference(_lastTelemetryUpdate).inMilliseconds >= 60 ||
-        oldWidget.themeKey != widget.themeKey) {
+        oldWidget.themeKey != widget.themeKey ||
+        oldWidget.bikeHexColor != widget.bikeHexColor ||
+        oldWidget.jerseyHexColor != widget.jerseyHexColor) {
       _lastTelemetryUpdate = now;
       _sendTelemetryToJs();
     }
@@ -74,8 +82,16 @@ class _Cycling3dViewState extends State<Cycling3dView> {
         : "";
     _lastSentTheme = widget.themeKey;
 
+    final rgbBike = widget.bikeHexColor & 0xFFFFFF;
+    final rgbJersey = widget.jerseyHexColor & 0xFFFFFF;
+    final equipJs = (_lastBikeColor != rgbBike || _lastJerseyColor != rgbJersey)
+        ? "if (window.setPlayerEquipmentColors) { window.setPlayerEquipmentColors($rgbBike, $rgbJersey); }"
+        : "";
+    _lastBikeColor = rgbBike;
+    _lastJerseyColor = rgbJersey;
+
     final jsCode =
-        "${themeJs}if (window.setRiderTelemetry) { window.setRiderTelemetry(${widget.watts}, ${widget.cadenceRpm.toStringAsFixed(1)}, ${widget.speedKmh.toStringAsFixed(1)}, ${widget.slopePercent.toStringAsFixed(1)}, ${widget.gear}); }";
+        "$themeJs$equipJs if (window.setRiderTelemetry) { window.setRiderTelemetry(${widget.watts}, ${widget.cadenceRpm.toStringAsFixed(1)}, ${widget.speedKmh.toStringAsFixed(1)}, ${widget.slopePercent.toStringAsFixed(1)}, ${widget.gear}); }";
     _controller.runJavaScript(jsCode);
   }
 

@@ -41,24 +41,27 @@ Le développement de Fogcycling suit une méthodologie rigoureuse en 8 phases s�
 
 ---
 
-## Phase 4 — Parcours Réels & Modélisation des Côtes
-- **Objectif** : Permettre de grimper un col réel célèbre (ex: Alpe d'Huez, Mur de Huy, Mont Ventoux) fidèlement reproduit en dénivelé.
-- **Tâches Clés** :
-  1. Implémenter l'importateur de traces GPS (fichiers `.gpx`).
-  2. Intégrer le calcul altimétrique et le lissage de pente (formule de Haversine + moyennes mobiles).
-  3. Construire le générateur procédural de ruban de route 3D suivant le profil altimétrique réel.
-  4. Relier la pente du terrain à la consigne de résistance envoyée au Zwift Hub One.
-- **Livrable** : Parcours d'une montée réelle jouable avec profil d'élévation dynamique et résistance physique synchronisée.
+## Phase 4 — Parcours Mythiques, Mode Carrière (Grands Tours & Classiques), IA 10 Niveaux & Export Strava — [IMPLÉMENTÉ & LIVRÉ ✅]
+- **Statut** : **Livré dans Fogcycling.apk le 23/10/2026**.
+- **Objectif** : Permettre de grimper 12 cols et côtes pavées mythiques, disputer des Grands Tours et Classiques avec équipiers et 10 niveaux d'IA, et exporter les sorties vers Strava.
+- **Tâches Clés Réalisées** :
+  1. Catalogue de **12 Parcours & Cols Mythiques** (`mythical_routes.dart`) avec vraies coordonnées GPS et profils de pente par secteur : *Mont Ventoux, Mur de Huy, La Roche-aux-Faucons, Vieux Quaremont, Mur de Grammont, Galibier, Stelvio, Poggio di Sanremo, Cauberg, Alpe d'Huez, Angliru, Trouée d'Arenberg (Paris-Roubaix)*.
+  2. **Mode Carrière Complet** (`races_and_peloton_models.dart` & `career_race_provider.dart`) : 4 Grands Tours par étapes (*Mini Tour de France 10 étapes, Tour de Belgique 6 étapes, Giro 8 étapes, Vuelta 8 étapes*) et 6 Monuments d'environ 1 heure (*Liège-Bastogne-Liège, Tour des Flandres, Milan-San Remo, Paris-Roubaix, Tour de Lombardie, Classique des Alpes*).
+  3. **Peloton IA à 10 Niveaux de Difficulté** réglables de **170 W à 260 W** de moyenne par paliers de 10 W.
+  4. **3 Équipiers IA, Stratégies de Départ & Ordres Radio en Direct** + **Physique d'Aspiration (Drafting -0% à -40%)** + **Maillots Distinctifs (Jaune, Pois, Vert)**.
+  5. **Exportateur Strava (.TCX Garmin enrichi)** (`strava_exporter.dart`) avec trace GPS réelle interpolée sur le col, altitude, Watts, Cadence et BPM.
 
 ---
 
-## Phase 5 — Comptes Utilisateurs, Espace Membre & Espace Administrateur
-- **Objectif** : Dotée d'une persistance cloud sécurisée, l'application sauvegarde les séances et permet l'administration de la plateforme.
-- **Tâches Clés** :
-  1. Configurer Supabase (Auth + PostgreSQL + RLS).
-  2. Créer l'espace membre (profil, calcul automatique des zones de puissance selon la FTP, historique des sorties).
-  3. Développer le tableau de bord d'administration protégé (rôle `admin` vérifié côté serveur).
-- **Livrable** : Authentification et synchronisation cloud des activités sportives.
+## Phase 5 — Comptes Utilisateurs, Espace Membre, Garage 3D & Espace Administrateur — [IMPLÉMENTÉ & LIVRÉ ✅]
+- **Statut** : **Livré dans Fogcycling.apk le 23/10/2026**.
+- **Objectif** : Dotée d'une architecture PostgreSQL/Supabase sécurisée (RLS), d'un suivi de charge WKO5, d'un Garage 3D et d'un tableau de bord d'administration protégé par RBAC.
+- **Tâches Clés Réalisées** :
+  1. Schéma SQL PostgreSQL complet avec **Row Level Security (RLS)** et table immuable `security_audit_logs` (`supabase/schema_rls.sql`).
+  2. **Espace Membre & Zones Coggan** (`athlete_profile_models.dart`, `athlete_profile_provider.dart`, `member_and_admin_screen.dart`) : réglage du profil (FTP, Poids, FC Max/Repos), calcul automatique des 7 zones de puissance Dr. Andrew Coggan et W/kg.
+  3. **Suivi Physiologique WKO5 & Historique des Sorties** : calcul automatique du NP, IF, TSS et modélisation Banister **CTL (Fitness 42j), ATL (Fatigue 7j) et TSB (Forme du jour)** avec diagnostic automatique de Coach Stravos.
+  4. **Garage 3D Interactif** : sélection de 5 cadres carbone (Aero, Montagne, Pavés, CLM) et 6 maillots officiels synchronisés en temps réel avec l'avatar 3D WebGL.
+  5. **Espace Administrateur Protégé (RBAC)** : contrôle du plafond matériel `SafetyLimiter`, gestion des comptes et journal d'audit de sécurité horodaté (avec blocage et journalisation `RBAC_DENIED` si rôle non-admin).
 
 ---
 

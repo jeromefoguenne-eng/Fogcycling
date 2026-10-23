@@ -26,7 +26,7 @@
     let cyclistGroup, bikeFrame, frontWheelGroup, rearWheelGroup, crankset;
     let leftThigh, leftCalf, leftFoot, rightThigh, rightCalf, rightFoot, leftKnee, rightKnee;
     let roadSegments = [], cloudPool = [], aiRidersPool = [];
-    let workoutArch, groundMesh;
+    let workoutArch, groundMesh, playerBikeFrameMat, playerJerseyMat;
 
     // Télémétrie reçue de Flutter / Zwift Hub
     let targetWatts = 0, currentWatts = 0;
@@ -439,6 +439,7 @@
       bikeFrame = new THREE.Group();
 
       const frameMat = new THREE.MeshToonMaterial({ color: 0xf97316 }); // Cadre Orange Carbone
+      playerBikeFrameMat = frameMat;
       const darkMat = new THREE.MeshToonMaterial({ color: 0x0f172a });  // Carbone mat
       const chromeMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.8, roughness: 0.2 });
 
@@ -531,6 +532,7 @@
       // ─── 4. LE CORPS DU CYCLISTE CARTOON STYLISÉ ───
       const skinMat = new THREE.MeshToonMaterial({ color: 0xfdba74 });   // Peau dorée chaleureuse
       const jerseyMat = new THREE.MeshToonMaterial({ color: 0x0284c7 }); // Maillot Bleu Pro Fogcycling
+      playerJerseyMat = jerseyMat;
       const stripeMat = new THREE.MeshToonMaterial({ color: 0xfacc15 }); // Bande jaune maillot
       const shortsMat = new THREE.MeshToonMaterial({ color: 0x0f172a }); // Cuissard Noir
       const helmetMat = new THREE.MeshToonMaterial({ color: 0xf8fafc }); // Casque Blanc Aero
@@ -832,6 +834,15 @@
       } else {
         groundMesh.material.color.setHex(0x4ade80); // Forêts Ardennaises (Huy, Redoute)
         scene.background.setHex(0x60a5fa);
+      }
+    };
+
+    window.setPlayerEquipmentColors = function(bikeHexInt, jerseyHexInt) {
+      if (playerBikeFrameMat && bikeHexInt) {
+        playerBikeFrameMat.color.setHex(Number(bikeHexInt));
+      }
+      if (playerJerseyMat && jerseyHexInt) {
+        playerJerseyMat.color.setHex(Number(jerseyHexInt));
       }
     };
 

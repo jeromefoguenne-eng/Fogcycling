@@ -7,10 +7,12 @@ import '../core/rendering/cycling_3d_view.dart';
 import '../core/routes/mythical_routes.dart';
 import '../core/strava/strava_exporter.dart';
 import '../core/workouts/workout_models.dart';
+import '../providers/athlete_profile_provider.dart';
 import '../providers/ble_sensor_provider.dart';
 import '../providers/career_race_provider.dart';
 import '../providers/workout_provider.dart';
 import 'hardware_test_screen.dart';
+import 'member_and_admin_screen.dart';
 
 /// Écran principal de Fogcycling (Phases 2, 3 & 4) :
 /// - Monde 3D Cartoon v2 avec Peloton (Équipiers & Adversaires) et thèmes par col
@@ -860,6 +862,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
     final ble = context.watch<BleSensorProvider>();
     final workout = context.watch<WorkoutProvider>();
     final career = context.watch<CareerRaceProvider>();
+    final profileProv = context.watch<AthleteProfileProvider>();
 
     final activeWatts = _isDemoMode
         ? (workout.isWorkoutActive ? workout.currentTargetWatts : _demoWatts)
@@ -880,7 +883,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // ─── 1. MOTEUR 3D CARTOON WEBGL v2 (AVEC PELOTON IA & THÈMES) ───────
+          // ─── 1. MOTEUR 3D CARTOON WEBGL v2 (AVEC PELOTON IA, THÈMES & GARAGE) ───
           Positioned.fill(
             child: Cycling3dView(
               watts: activeWatts,
@@ -889,6 +892,8 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
               slopePercent: activeSlope,
               gear: activeGear,
               themeKey: career.activeRoute.visualTheme.jsKey,
+              bikeHexColor: profileProv.selectedBike.displayColor.toARGB32(),
+              jerseyHexColor: profileProv.selectedJersey.displayColor.toARGB32(),
             ),
           ),
 
@@ -995,7 +1000,65 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
                           ),
                           const SizedBox(width: 5),
 
-                          // 5. Export Strava (.TCX)
+                          // 5. Espace Membre, Garage 3D, Charge CTL/ATL/TSB & Admin (Phase 5)
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF4F46E5),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(Icons.person_pin, size: 14),
+                            label: const Text("Profil & Garage", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => const MemberAndAdminScreen()),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 5),
+
+                          // 6. Sauvegarder la Sortie dans l'Historique Membre (TSS / WKO5)
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF16A34A),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(Icons.save_alt, size: 14),
+                            label: const Text("Sauver", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+                            onPressed: () {
+                              final savedW = avgWatts > 0 ? avgWatts : (activeWatts > 0 ? activeWatts : 195);
+                              profileProv.recordCompletedRide(
+                                title: workout.isWorkoutActive && workout.activeWorkout != null
+                                    ? "Séance ${workout.activeWorkout!.title}"
+                                    : "Ascension ${career.activeRoute.name}",
+                                routeName: career.activeRoute.name,
+                                durationSeconds: _elapsedSeconds > 30 ? _elapsedSeconds : 1800,
+                                distanceKm: career.playerDistanceMeters > 100
+                                    ? career.playerDistanceMeters / 1000.0
+                                    : 12.5,
+                                elevationGainMeters: (career.playerDistanceMeters * (activeSlope.clamp(1.0, 20.0) / 100.0)).round().clamp(120, 2500),
+                                avgWatts: savedW,
+                                avgCadenceRpm: activeCadence > 0 ? activeCadence.round() : 86,
+                                avgHeartRateBpm: ble.heartRateBpm ?? 148,
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  backgroundColor: Colors.green.shade800,
+                                  content: Text(
+                                    "✅ Sortie enregistrée dans votre Espace Membre (${career.activeRoute.name} • $savedW W moy. • TSS calculé) !",
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 5),
+
+                          // 7. Export Strava (.TCX)
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.deepOrange,
@@ -1010,7 +1073,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
                           ),
                           const SizedBox(width: 4),
 
-                          // 6. Mode Démo
+                          // 8. Mode Démo
                           IconButton(
                             visualDensity: VisualDensity.compact,
                             icon: Icon(

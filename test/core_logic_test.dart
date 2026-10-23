@@ -2,10 +2,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fogcycling/core/bluetooth/ftms_data_parser.dart';
 import 'package:fogcycling/core/career/races_and_peloton_models.dart';
 import 'package:fogcycling/core/physics/virtual_shifting.dart';
+import 'package:fogcycling/core/profile/athlete_profile_models.dart';
 import 'package:fogcycling/core/routes/mythical_routes.dart';
 import 'package:fogcycling/core/safety/safety_limiter.dart';
 import 'package:fogcycling/core/strava/strava_exporter.dart';
 import 'package:fogcycling/core/workouts/workout_models.dart';
+import 'package:fogcycling/providers/athlete_profile_provider.dart';
 
 void main() {
   group('FtmsDataParser Tests', () {
@@ -158,6 +160,53 @@ void main() {
       expect(xml, contains('<ns3:Watts>235</ns3:Watts>'));
       expect(xml, contains('<Cadence>88</Cadence>'));
       expect(xml, contains('<LatitudeDegrees>44.123800</LatitudeDegrees>'));
+    });
+  });
+
+  group('Phase 5 — Athlete Profile, Coggan 7 Power Zones, WKO5 TSS & RBAC Admin Tests', () {
+    test('Computes all 7 Coggan power zones accurately from FTP', () {
+      final zones = PowerZoneRange.computeCogganZones(220);
+      expect(zones.length, equals(7));
+      expect(zones[0].zoneNumber, equals(1));
+      expect(zones[0].maxWatts, equals(121)); // 55% of 220
+      expect(zones[3].zoneNumber, equals(4)); // Z4 Threshold (91% - 105%)
+      expect(zones[3].minWatts, equals(199));
+      expect(zones[3].maxWatts, equals(231));
+    });
+
+    test('Computes accurate WKO5 Training Stress Score (TSS) and updates AthleteProfileProvider', () {
+      // 1 hour at FTP (avgWatts = 212 -> NP = 220, FTP = 220 -> IF = 1.0) equals 100 TSS
+      final tssOneHourAtFtp = RecordedRideActivity.computeTss(
+        durationSeconds: 3600,
+        avgWatts: 212,
+        ftpWatts: 220,
+      );
+      expect(tssOneHourAtFtp, closeTo(100.0, 1.0));
+
+      final provider = AthleteProfileProvider();
+      expect(provider.isAdmin, isTrue);
+      expect(provider.rideHistory.length, greaterThanOrEqualTo(3));
+
+      final initialCount = provider.rideHistory.length;
+      provider.recordCompletedRide(
+        title: 'Test Mont Ventoux',
+        routeName: 'Mont Ventoux',
+        durationSeconds: 3600,
+        distanceKm: 21.5,
+        elevationGainMeters: 1570,
+        avgWatts: 210,
+        avgCadenceRpm: 85,
+        avgHeartRateBpm: 158,
+      );
+      expect(provider.rideHistory.length, equals(initialCount + 1));
+
+      // Test RBAC protection when switching to standard member role
+      provider.toggleRoleForTesting();
+      expect(provider.isAdmin, isFalse);
+      final countBeforeUnauthorizedSet = provider.auditLogs.length;
+      provider.setAdminSafetyMaxWattsCeiling(350); // Should be blocked and logged as RBAC_DENIED
+      expect(provider.auditLogs.length, equals(countBeforeUnauthorizedSet + 1));
+      expect(provider.auditLogs.first.category, equals('RBAC_DENIED'));
     });
   });
 }
