@@ -18,6 +18,8 @@ dist/
 *.pem
 *.key
 *.token
+*.cer
+android/keystores/
 
 # IDE & OS
 .idea/

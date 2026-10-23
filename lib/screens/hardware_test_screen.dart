@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/ble_sensor_provider.dart';
+import 'cycling_ride_screen.dart';
 
 class HardwareTestScreen extends StatefulWidget {
   const HardwareTestScreen({super.key});
@@ -56,6 +57,19 @@ class _HardwareTestScreenState extends State<HardwareTestScreen> with SingleTick
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.videogame_asset, color: Colors.amberAccent),
+            tooltip: "Monde 3D Cartoon",
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              } else {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const CyclingRideScreen()),
+                );
+              }
+            },
+          ),
           Container(
             margin: const EdgeInsets.only(right: 8),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

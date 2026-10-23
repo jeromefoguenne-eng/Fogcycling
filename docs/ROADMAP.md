@@ -4,28 +4,28 @@ Le développement de Fogcycling suit une méthodologie rigoureuse en 8 phases s�
 
 ---
 
-## Phase 1 — Prototype Matériel & Validation Bluetooth (Zwift Hub One)
+## Phase 1 — Prototype Matériel & Validation Bluetooth (Zwift Hub One) — [VALIDÉ EN PHYSIQUE ✅]
+- **Statut** : **100% Validé sur matériel réel le 23/10/2026**.
 - **Objectif** : Établir la liaison de contrôle Bluetooth basse énergie fiable entre l'application et le Zwift Hub One (2023) équipé du Zwift Cog, ainsi que le capteur cardio BLE.
-- **Tâches Clés** :
-  1. Initialiser le squelette de l'application mobile de test.
-  2. Implémenter le scanner BLE avec filtre sur le service FTMS (`0x1826`) et HRS (`0x180D`).
-  3. Développer le décodeur de trames télémétriques `Indoor Bike Data` (Watts, Cadence, Vitesse).
-  4. Implémenter la prise de contrôle (`Request Control`) et l'asservissement en puissance (Mode ERG `Set Target Power`).
-  5. Implémenter le contrôleur de sécurité matérielle (rampe max 20W/s et arrêt d'urgence 1-tap).
-- **Livrable** : Démonstrateur mobile fonctionnel testé en direct sur le home trainer physique de l'utilisateur.
-- **Critère de Sortie de Phase** : Validation physique documentée dans `docs/COMPATIBILITY_MATRIX.md` (puissance lue en direct et résistance ressentie sous la pédale).
+- **Résultats obtenus & prouvés** :
+  - Connexion BLE FTMS & HRS 100% opérationnelle.
+  - Télémétrie en direct validée : Watts (0 à 250W+), Cadence (RPM), Vitesse (km/h).
+  - Contrôle effectif du frein validé : Mode direct 20% à 80%, braquets virtuels Cog 1 à 24, simulation de pente 3% à 6%, mode ERG 100W à 200W.
+  - Preuves physiques : 9 captures d'écran archivées dans `test/Appli home trainer/`.
 
 ---
 
-## Phase 2 — Prototype de Cyclisme & Rendu 3D Stylisé
+## Phase 2 — Prototype de Cyclisme & Rendu 3D Stylisé — [IMPLÉMENTÉ & LIVRÉ ✅]
+- **Statut** : **Livré dans Fogcycling.apk le 23/10/2026**.
 - **Objectif** : Offrir la première expérience visuelle de cyclisme virtuel avec un avatar animé réagissant à l'effort réel.
-- **Tâches Clés** :
-  1. Intégrer le viewport 3D stylisé (direction artistique cartoon / low-poly coloré).
-  2. Charger le modèle 3D du cycliste et son vélo.
-  3. Lier l'animation de pédalage à la cadence réelle reçue du Zwift Hub One.
-  4. Générer une première boucle de route 3D avec décors (arbres, relief, ciel animé).
-  5. Afficher le HUD sportif superposé (Watts, Cadence, BPM, Vitesse).
-- **Livrable** : Scène 3D jouable à 60 FPS sur smartphone pilotée par le pédalage réel.
+- **Tâches Clés Réalisées** :
+  1. Intégration du moteur 3D Three.js WebGL autonome dans `assets/3d_world/index.html`.
+  2. Modélisation de la route alpine sinueuse, sapins low-poly, massifs montagneux et ciel cartoon.
+  3. Avatar cycliste cartoon 3D procédural avec cinématique inverse des jambes verrouillée à la cadence réelle du Zwift Hub One.
+  4. HUD sportif mobile flottant : Jauge de Watts dynamique avec zones Coggan (Z1 à Z6), Cadence, Cardio, Vitesse, Dénivelé, Chrono et Distance.
+  5. Cockpit tactile Zwift Cog au pouce (+/- braquets virtuels 1 à 24) et sélecteur rapide de pentes.
+  6. Mode Démo / Simulation intégré pour tester le monde 3D sans être sur le home trainer.
+- **Livrable** : `CyclingRideScreen` et APK `Fogcycling.apk` généré et prêt sur le bureau.
 
 ---
 

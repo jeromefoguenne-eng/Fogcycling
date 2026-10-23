@@ -1,7 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:fogcycling/main.dart';
 import 'package:fogcycling/providers/ble_sensor_provider.dart';
+import 'package:fogcycling/screens/hardware_test_screen.dart';
 
 void main() {
   testWidgets('Fogcycling Hardware Test Screen smoke test', (WidgetTester tester) async {
@@ -10,7 +11,9 @@ void main() {
         providers: [
           ChangeNotifierProvider(create: (_) => BleSensorProvider()),
         ],
-        child: const FogcyclingApp(),
+        child: const MaterialApp(
+          home: HardwareTestScreen(),
+        ),
       ),
     );
 

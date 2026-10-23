@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/ble_sensor_provider.dart';
-import 'screens/hardware_test_screen.dart';
+import 'screens/cycling_ride_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,7 +33,7 @@ class FogcyclingApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const HardwareTestScreen(),
+      home: const CyclingRideScreen(),
     );
   }
 }
