@@ -9,14 +9,28 @@ class HardwareTestScreen extends StatefulWidget {
   State<HardwareTestScreen> createState() => _HardwareTestScreenState();
 }
 
-class _HardwareTestScreenState extends State<HardwareTestScreen> {
+class _HardwareTestScreenState extends State<HardwareTestScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
   Color _getPowerZoneColor(int watts) {
-    if (watts < 120) return const Color(0xFF64748B); // Z1 Récupération (Gris ardoise)
-    if (watts < 170) return const Color(0xFF0284C7); // Z2 Endurance (Bleu ciel)
-    if (watts < 220) return const Color(0xFF16A34A); // Z3 Tempo (Vert vif)
-    if (watts < 270) return const Color(0xFFEAB308); // Z4 Seuil (Jaune or)
-    if (watts < 320) return const Color(0xFFEA580C); // Z5 PMA (Orange vif)
-    return const Color(0xFFDC2626); // Z6/Z7 Anaérobie (Rouge écarlate)
+    if (watts < 120) return const Color(0xFF64748B); // Z1 Récupération
+    if (watts < 170) return const Color(0xFF0284C7); // Z2 Endurance
+    if (watts < 220) return const Color(0xFF16A34A); // Z3 Tempo
+    if (watts < 270) return const Color(0xFFEAB308); // Z4 Seuil
+    if (watts < 320) return const Color(0xFFEA580C); // Z5 PMA
+    return const Color(0xFFDC2626); // Z6/Z7 Anaérobie
   }
 
   @override
@@ -27,84 +41,377 @@ class _HardwareTestScreenState extends State<HardwareTestScreen> {
       backgroundColor: const Color(0xFF0B132B),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1C2541),
+        elevation: 0,
         title: Row(
           children: [
-            const Icon(Icons.bolt, color: Color(0xFF38BDF8), size: 28),
+            const Icon(Icons.bolt, color: Color(0xFF38BDF8), size: 24),
             const SizedBox(width: 8),
-            const Text(
-              "Fogcycling — Banc d'Essai Phase 1",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            const Expanded(
+              child: Text(
+                "Fogcycling — Banc d'Essai Phase 1",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ),
         actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: ble.connectedTrainer != null ? const Color(0xFF065F46) : const Color(0xFF7F1D1D),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.circle,
+                  size: 8,
+                  color: ble.connectedTrainer != null ? const Color(0xFF34D399) : Colors.redAccent,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  ble.connectedTrainer != null ? "Trainer OK" : "Non appairé",
+                  style: TextStyle(
+                    color: ble.connectedTrainer != null ? const Color(0xFF34D399) : Colors.redAccent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
           if (ble.connectedTrainer != null || ble.connectedHeartRateDevice != null)
             IconButton(
-              icon: const Icon(Icons.link_off, color: Colors.redAccent),
+              icon: const Icon(Icons.link_off, color: Colors.redAccent, size: 22),
               tooltip: "Déconnecter tout",
               onPressed: () => ble.disconnectAll(),
             ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: const Color(0xFF38BDF8),
+          indicatorWeight: 3,
+          labelColor: const Color(0xFF38BDF8),
+          unselectedLabelColor: const Color(0xFF94A3B8),
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          tabs: const [
+            Tab(icon: Icon(Icons.sports_motorsports, size: 20), text: "Cockpit & Frein"),
+            Tab(icon: Icon(Icons.bluetooth_searching, size: 20), text: "Scanner BLE"),
+            Tab(icon: Icon(Icons.terminal, size: 20), text: "Diagnostic"),
+          ],
+        ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ─── BANDEAU ARRÊT D'URGENCE ──────────────────────────────────────────
-              _buildEmergencyStopBanner(ble),
-              const SizedBox(height: 16),
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            // ONGLET 1 : COCKPIT & CONTRÔLE DE RÉSISTANCE (Sans scroll excessif)
+            _buildCockpitTab(ble),
 
-              // ─── TÉLÉMÉTRIE EN TEMPS RÉEL (HUD) ──────────────────────────────────
-              _buildTelemetryHUD(ble),
-              const SizedBox(height: 16),
+            // ONGLET 2 : SCANNER BLUETOOTH
+            _buildScannerTab(ble),
 
-              // ─── MODULE SHIFTING VIRTUEL (ZWIFT COG) ─────────────────────────────
-              _buildVirtualShiftingCard(ble),
-              const SizedBox(height: 16),
-
-              // ─── CONTRÔLE DE RÉSISTANCE (MODE ERG & PENTE) ───────────────────────
-              _buildResistanceControlCard(ble),
-              const SizedBox(height: 16),
-
-              // ─── SCANNER BLUETOOTH ───────────────────────────────────────────────
-              _buildScannerCard(ble),
-              const SizedBox(height: 16),
-
-              // ─── CONSOLE DE LOGS EN DIRECT ───────────────────────────────────────
-              _buildDebugConsole(ble),
-            ],
-          ),
+            // ONGLET 3 : CONSOLE DE LOGS
+            _buildDiagnosticTab(ble),
+          ],
         ),
       ),
     );
   }
 
-  // ─── BANDEAU D'ARRÊT D'URGENCE ─────────────────────────────────────────────
-  Widget _buildEmergencyStopBanner(BleSensorProvider ble) {
+  // ==============================================================================
+  // ONGLET 1 : COCKPIT CYCLISTE & RÉSISTANCE (100% VISIBLE SUR UN SEUL ÉCRAN)
+  // ==============================================================================
+  Widget _buildCockpitTab(BleSensorProvider ble) {
+    final powerColor = _getPowerZoneColor(ble.powerWatts);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ─── BANDEAU ARRÊT D'URGENCE ──────────────────────────────────────────
+          _buildEmergencyBanner(ble),
+          const SizedBox(height: 8),
+
+          // ─── BLOC TÉLÉMÉTRIE COMPACT HAUTE LISIBILITÉ ─────────────────────────
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C2541),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF3A506B)),
+            ),
+            child: Row(
+              children: [
+                // Jauge Watts Géante
+                Expanded(
+                  flex: 5,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: powerColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: powerColor, width: 2),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text("PUISSANCE", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10, fontWeight: FontWeight.bold)),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            "${ble.powerWatts}",
+                            style: TextStyle(color: powerColor, fontSize: 44, fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                        const Text("WATTS", style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Cadence, Cardio, Vitesse
+                Expanded(
+                  flex: 6,
+                  child: Column(
+                    children: [
+                      _buildMiniMetric(Icons.sync, const Color(0xFF38BDF8), "Cadence", "${ble.cadenceRpm.toStringAsFixed(0)} RPM"),
+                      const SizedBox(height: 4),
+                      _buildMiniMetric(Icons.favorite, const Color(0xFFF43F5E), "Cardio", ble.heartRateBpm != null ? "${ble.heartRateBpm} BPM" : "--"),
+                      const SizedBox(height: 4),
+                      _buildMiniMetric(Icons.speed, const Color(0xFFA855F7), "Vitesse", "${ble.speedKmh.toStringAsFixed(1)} km/h"),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // ─── MODULE ZWIFT COG & SHIFTING VIRTUEL ──────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C2541),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFF59E0B), width: 1.5),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      "TRANSMISSION VIRTUELLE — ZWIFT COG",
+                      style: TextStyle(color: Color(0xFFF59E0B), fontWeight: FontWeight.bold, fontSize: 11),
+                    ),
+                    Text(
+                      "Frein: ${ble.directResistancePercent}%",
+                      style: const TextStyle(color: Color(0xFF34D399), fontWeight: FontWeight.bold, fontSize: 11),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    // Bouton Souple
+                    Expanded(
+                      flex: 4,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF334155),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.arrow_downward, size: 20),
+                        label: const Text("SOUPLE\n(Côte)", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        onPressed: () => ble.shiftDown(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Indicateur Rapport
+                    Expanded(
+                      flex: 3,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0B132B),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFF59E0B)),
+                        ),
+                        child: Column(
+                          children: [
+                            const Text("VITESSE", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 9, fontWeight: FontWeight.bold)),
+                            Text(
+                              "${ble.currentVirtualGear}/24",
+                              style: const TextStyle(color: Color(0xFFF59E0B), fontSize: 20, fontWeight: FontWeight.w900),
+                            ),
+                            Text("Ratio ${ble.currentGearRatio.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white70, fontSize: 9)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Bouton Dur
+                    Expanded(
+                      flex: 4,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0284C7),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.arrow_upward, size: 20),
+                        label: const Text("DUR\n(Plat)", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        onPressed: () => ble.shiftUp(),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // ─── TESTS DE RÉSISTANCE RAPIDES ─────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C2541),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF3A506B)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  "TEST DE FREINAGE PHYSIQUE DIRECT (Opcode 0x04)",
+                  style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 11),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    _buildPillBtn(ble, "20%", () => ble.setDirectResistance(20), ble.targetPowerWatts == 0 && ble.simulatedSlopePercent == 0.0 && ble.directResistancePercent == 20),
+                    const SizedBox(width: 6),
+                    _buildPillBtn(ble, "40%", () => ble.setDirectResistance(40), ble.targetPowerWatts == 0 && ble.simulatedSlopePercent == 0.0 && ble.directResistancePercent == 40),
+                    const SizedBox(width: 6),
+                    _buildPillBtn(ble, "60%", () => ble.setDirectResistance(60), ble.targetPowerWatts == 0 && ble.simulatedSlopePercent == 0.0 && ble.directResistancePercent == 60),
+                    const SizedBox(width: 6),
+                    _buildPillBtn(ble, "80%", () => ble.setDirectResistance(80), ble.targetPowerWatts == 0 && ble.simulatedSlopePercent == 0.0 && ble.directResistancePercent == 80),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  "MODE ERG — PUISSANCE CIBLE (Opcode 0x05)",
+                  style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, fontSize: 11),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    _buildPillBtn(ble, "100W", () => ble.setTargetPower(100), ble.targetPowerWatts == 100),
+                    const SizedBox(width: 6),
+                    _buildPillBtn(ble, "130W", () => ble.setTargetPower(130), ble.targetPowerWatts == 130),
+                    const SizedBox(width: 6),
+                    _buildPillBtn(ble, "160W", () => ble.setTargetPower(160), ble.targetPowerWatts == 160),
+                    const SizedBox(width: 6),
+                    _buildPillBtn(ble, "200W", () => ble.setTargetPower(200), ble.targetPowerWatts == 200),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  "SIMULATION DE PENTE (Opcode 0x11)",
+                  style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, fontSize: 11),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    _buildPillBtn(ble, "Plat 0%", () => ble.setSimulatedSlope(0.0), ble.simulatedSlopePercent == 0.0 && ble.targetPowerWatts == 0),
+                    const SizedBox(width: 6),
+                    _buildPillBtn(ble, "Côte +3%", () => ble.setSimulatedSlope(3.0), ble.simulatedSlopePercent == 3.0),
+                    const SizedBox(width: 6),
+                    _buildPillBtn(ble, "Col +6%", () => ble.setSimulatedSlope(6.0), ble.simulatedSlopePercent == 6.0),
+                    const SizedBox(width: 6),
+                    _buildPillBtn(ble, "Mur +9%", () => ble.setSimulatedSlope(9.0), ble.simulatedSlopePercent == 9.0),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniMetric(IconData icon, Color color, String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B132B),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF334155)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 14),
+              const SizedBox(width: 4),
+              Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+            ],
+          ),
+          Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPillBtn(BleSensorProvider ble, String label, VoidCallback onPressed, bool isSelected) {
+    return Expanded(
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          backgroundColor: isSelected ? const Color(0xFF0284C7) : Colors.transparent,
+          foregroundColor: isSelected ? Colors.white : const Color(0xFF38BDF8),
+          side: BorderSide(color: isSelected ? Colors.white : const Color(0xFF0284C7)),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        onPressed: ble.connectedTrainer != null ? onPressed : null,
+        child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+      ),
+    );
+  }
+
+  Widget _buildEmergencyBanner(BleSensorProvider ble) {
     if (ble.isEmergencyStopped) {
       return Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: const Color(0xFFEF4444),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white, width: 2),
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Icon(Icons.warning, color: Colors.white, size: 36),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                "ARRÊT D'URGENCE ACTIF !\nTrainer débrayé en roue libre.",
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-              ),
+            Row(
+              children: const [
+                Icon(Icons.warning, color: Colors.white, size: 24),
+                SizedBox(width: 8),
+                Text("ARRÊT D'URGENCE ACTIF (Roue libre)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+              ],
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
               onPressed: () => ble.resetEmergencyStop(),
-              child: const Text("Réarmer"),
+              child: const Text("Réarmer", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -115,470 +422,97 @@ class _HardwareTestScreenState extends State<HardwareTestScreen> {
       style: ElevatedButton.styleFrom(
         backgroundColor: const Color(0xFFDC2626),
         foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        elevation: 4,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
-      icon: const Icon(Icons.stop_circle, size: 28),
-      label: const Text(
-        "ARRÊT D'URGENCE (1-TAP)",
-        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1),
-      ),
+      icon: const Icon(Icons.stop_circle, size: 18),
+      label: const Text("ARRÊT D'URGENCE (1-TAP)", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
       onPressed: () => ble.triggerEmergencyStop(),
     );
   }
 
-  // ─── TÉLÉMÉTRIE HUD ────────────────────────────────────────────────────────
-  Widget _buildTelemetryHUD(BleSensorProvider ble) {
-    final powerColor = _getPowerZoneColor(ble.powerWatts);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1C2541),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF3A506B), width: 1.5),
-      ),
+  // ==============================================================================
+  // ONGLET 2 : SCANNER BLUETOOTH
+  // ==============================================================================
+  Widget _buildScannerTab(BleSensorProvider ble) {
+    return Padding(
+      padding: const EdgeInsets.all(12.0),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                "TÉLÉMÉTRIE EN DIRECT",
-                style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1),
-              ),
-              Row(
-                children: [
-                  Icon(
-                    Icons.circle,
-                    size: 10,
-                    color: ble.connectedTrainer != null ? const Color(0xFF22C55E) : Colors.red,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    ble.connectedTrainer != null ? "Trainer Connecté" : "Hors ligne",
-                    style: TextStyle(
-                      color: ble.connectedTrainer != null ? const Color(0xFF22C55E) : Colors.red,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              // Jauge Puissance (Watts)
-              Expanded(
-                flex: 5,
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: powerColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: powerColor, width: 2),
-                  ),
-                  child: Column(
-                    children: [
-                      const Text("PUISSANCE", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Text(
-                        "${ble.powerWatts}",
-                        style: TextStyle(color: powerColor, fontSize: 48, fontWeight: FontWeight.w900),
-                      ),
-                      const Text("WATTS", style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 12, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Cadence, Cardio & Vitesse
-              Expanded(
-                flex: 6,
-                child: Column(
-                  children: [
-                    // Cadence (RPM)
-                    _buildMetricRow(
-                      icon: Icons.sync,
-                      iconColor: const Color(0xFF38BDF8),
-                      label: "Cadence",
-                      value: "${ble.cadenceRpm.toStringAsFixed(0)} RPM",
-                    ),
-                    const SizedBox(height: 8),
-                    // Cardio (BPM)
-                    _buildMetricRow(
-                      icon: Icons.favorite,
-                      iconColor: const Color(0xFFF43F5E),
-                      label: "Fréquence Cardiaque",
-                      value: ble.heartRateBpm != null ? "${ble.heartRateBpm} BPM" : "-- BPM",
-                    ),
-                    const SizedBox(height: 8),
-                    // Vitesse
-                    _buildMetricRow(
-                      icon: Icons.speed,
-                      iconColor: const Color(0xFFA855F7),
-                      label: "Vitesse Calculée",
-                      value: "${ble.speedKmh.toStringAsFixed(1)} km/h",
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMetricRow({
-    required IconData icon,
-    required Color iconColor,
-    required String label,
-    required String value,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B132B),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF3A506B)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: iconColor, size: 20),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-          ),
-          Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-        ],
-      ),
-    );
-  }
-
-  // ─── MODULE CHANGEMENT DE BRAQUET VIRTUEL (ZWIFT COG) ───────────────────────
-  Widget _buildVirtualShiftingCard(BleSensorProvider ble) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1C2541),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFF59E0B), width: 1.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.settings, color: Color(0xFFF59E0B), size: 22),
-              SizedBox(width: 8),
-              Text(
-                "TRANSMISSION VIRTUELLE — ZWIFT COG",
-                style: TextStyle(color: Color(0xFFF59E0B), fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.5),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            "Pignon unique 14T physique : la démultiplication est gérée à 100% par l'application.",
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Bouton descendre vitesse (plus souple)
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF334155),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.arrow_downward, size: 24),
-                  label: const Text("SOUPLE\n(Côte)", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
-                  onPressed: () => ble.shiftDown(),
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Indicateur de vitesse
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0B132B),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFF59E0B), width: 2),
-                ),
-                child: Column(
-                  children: [
-                    const Text("RAPPORT", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11, fontWeight: FontWeight.bold)),
-                    Text(
-                      "${ble.currentVirtualGear} / ${ble.totalVirtualGears}",
-                      style: const TextStyle(color: Color(0xFFF59E0B), fontSize: 26, fontWeight: FontWeight.w900),
-                    ),
-                    Text(
-                      "Ratio: ${ble.currentGearRatio.toStringAsFixed(2)}",
-                      style: const TextStyle(color: Colors.white70, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Bouton monter vitesse (plus dur)
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0284C7),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.arrow_upward, size: 24),
-                  label: const Text("DUR\n(Plat)", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
-                  onPressed: () => ble.shiftUp(),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── CONTRÔLE DE RÉSISTANCE (MODE ERG & PENTE) ─────────────────────────────
-  Widget _buildResistanceControlCard(BleSensorProvider ble) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1C2541),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF3A506B)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                "TEST DE RÉSISTANCE PHYSIQUE",
-                style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1),
-              ),
-              if (!ble.hasTrainerControl)
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white),
-                  icon: const Icon(Icons.lock_open, size: 18),
-                  label: const Text("Prendre Contrôle"),
-                  onPressed: ble.connectedTrainer != null ? () => ble.requestTrainerControl() : null,
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF065F46),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text("Contrôle Actif (FTMS)", style: TextStyle(color: Color(0xFF34D399), fontSize: 12, fontWeight: FontWeight.bold)),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Text("1. Frein Direct (Test Immédiat Opcode 0x04) :", style: TextStyle(color: Colors.white70, fontSize: 12)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _buildDirectResistanceBtn(ble, 20),
-              const SizedBox(width: 8),
-              _buildDirectResistanceBtn(ble, 40),
-              const SizedBox(width: 8),
-              _buildDirectResistanceBtn(ble, 60),
-              const SizedBox(width: 8),
-              _buildDirectResistanceBtn(ble, 80),
-            ],
-          ),
-          const SizedBox(height: 14),
-          const Text("2. Mode ERG (Watts cibles avec rampe sécurisée max 20W/s) :", style: TextStyle(color: Colors.white70, fontSize: 12)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _buildPowerTargetBtn(ble, 100),
-              const SizedBox(width: 8),
-              _buildPowerTargetBtn(ble, 130),
-              const SizedBox(width: 8),
-              _buildPowerTargetBtn(ble, 160),
-              const SizedBox(width: 8),
-              _buildPowerTargetBtn(ble, 200),
-            ],
-          ),
-          const SizedBox(height: 14),
-          const Text("3. Mode Simulation de Pente :", style: TextStyle(color: Colors.white70, fontSize: 12)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _buildSlopeTargetBtn(ble, 0.0),
-              const SizedBox(width: 8),
-              _buildSlopeTargetBtn(ble, 3.0),
-              const SizedBox(width: 8),
-              _buildSlopeTargetBtn(ble, 6.0),
-              const SizedBox(width: 8),
-              _buildSlopeTargetBtn(ble, 9.0),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDirectResistanceBtn(BleSensorProvider ble, int percent) {
-    final isSelected = ble.targetPowerWatts == 0 && ble.simulatedSlopePercent == 0.0 && ble.directResistancePercent == percent;
-    return Expanded(
-      child: OutlinedButton(
-        style: OutlinedButton.styleFrom(
-          backgroundColor: isSelected ? const Color(0xFF10B981) : Colors.transparent,
-          foregroundColor: isSelected ? Colors.white : const Color(0xFF34D399),
-          side: const BorderSide(color: Color(0xFF10B981)),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-        ),
-        onPressed: ble.hasTrainerControl ? () => ble.setDirectResistance(percent) : null,
-        child: Text("$percent%", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-      ),
-    );
-  }
-
-  Widget _buildPowerTargetBtn(BleSensorProvider ble, int watts) {
-    final isSelected = ble.targetPowerWatts == watts;
-    return Expanded(
-      child: OutlinedButton(
-        style: OutlinedButton.styleFrom(
-          backgroundColor: isSelected ? const Color(0xFF0284C7) : Colors.transparent,
-          foregroundColor: isSelected ? Colors.white : const Color(0xFF38BDF8),
-          side: const BorderSide(color: Color(0xFF0284C7)),
-        ),
-        onPressed: ble.hasTrainerControl ? () => ble.setTargetPower(watts) : null,
-        child: Text("${watts}W", style: const TextStyle(fontWeight: FontWeight.bold)),
-      ),
-    );
-  }
-
-  Widget _buildSlopeTargetBtn(BleSensorProvider ble, double slope) {
-    final isSelected = ble.simulatedSlopePercent == slope;
-    return Expanded(
-      child: OutlinedButton(
-        style: OutlinedButton.styleFrom(
-          backgroundColor: isSelected ? const Color(0xFFF59E0B) : Colors.transparent,
-          foregroundColor: isSelected ? Colors.white : const Color(0xFFF59E0B),
-          side: const BorderSide(color: Color(0xFFF59E0B)),
-        ),
-        onPressed: ble.hasTrainerControl ? () => ble.setSimulatedSlope(slope) : null,
-        child: Text("${slope.toStringAsFixed(0)}%", style: const TextStyle(fontWeight: FontWeight.bold)),
-      ),
-    );
-  }
-
-  // ─── SCANNER BLUETOOTH ─────────────────────────────────────────────────────
-  Widget _buildScannerCard(BleSensorProvider ble) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1C2541),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF3A506B)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                "PÉRIPHÉRIQUES BLUETOOTH DÉTECTÉS",
-                style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1),
-              ),
+              const Text("PÉRIPHÉRIQUES DÉTECTÉS", style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, fontSize: 13)),
               ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ble.isScanning ? Colors.redAccent : const Color(0xFF0284C7),
-                  foregroundColor: Colors.white,
-                ),
+                style: ElevatedButton.styleFrom(backgroundColor: ble.isScanning ? Colors.redAccent : const Color(0xFF0284C7)),
                 icon: ble.isScanning
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.search, size: 18),
+                    ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.search, size: 16),
                 label: Text(ble.isScanning ? "Arrêter" : "Scanner"),
                 onPressed: ble.isScanning ? () => ble.stopScan() : () => ble.startScan(),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          if (ble.scanResults.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16.0),
-              child: Center(
-                child: Text(
-                  ble.isScanning ? "Recherche de votre Zwift Hub et capteurs en cours..." : "Appuyez sur Scanner pour détecter vos équipements",
-                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                ),
-              ),
-            )
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: ble.scanResults.length,
-              separatorBuilder: (context, index) => const Divider(color: Color(0xFF334155)),
-              itemBuilder: (context, index) {
-                final result = ble.scanResults[index];
-                final name = result.device.platformName.isNotEmpty ? result.device.platformName : "Appareil sans nom (${result.device.remoteId})";
-                final isZwift = name.toLowerCase().contains("zwift") || name.toLowerCase().contains("hub");
-
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    isZwift ? Icons.directions_bike : Icons.bluetooth,
-                    color: isZwift ? const Color(0xFFF59E0B) : const Color(0xFF38BDF8),
-                  ),
-                  title: Text(
-                    name,
-                    style: TextStyle(
-                      color: isZwift ? const Color(0xFFF59E0B) : Colors.white,
-                      fontWeight: isZwift ? FontWeight.bold : FontWeight.normal,
+          const SizedBox(height: 8),
+          Expanded(
+            child: ble.scanResults.isEmpty
+                ? Center(
+                    child: Text(
+                      ble.isScanning ? "Recherche de votre Zwift Hub..." : "Appuyez sur Scanner pour détecter vos appareils",
+                      style: const TextStyle(color: Color(0xFF94A3B8)),
                     ),
+                  )
+                : ListView.separated(
+                    itemCount: ble.scanResults.length,
+                    separatorBuilder: (context, index) => const Divider(color: Color(0xFF334155)),
+                    itemBuilder: (context, index) {
+                      final result = ble.scanResults[index];
+                      final name = result.device.platformName.isNotEmpty ? result.device.platformName : "Appareil (${result.device.remoteId})";
+                      final isZwift = name.toLowerCase().contains("zwift") || name.toLowerCase().contains("hub");
+
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          isZwift ? Icons.directions_bike : Icons.bluetooth,
+                          color: isZwift ? const Color(0xFFF59E0B) : const Color(0xFF38BDF8),
+                        ),
+                        title: Text(name, style: TextStyle(color: isZwift ? const Color(0xFFF59E0B) : Colors.white, fontWeight: isZwift ? FontWeight.bold : FontWeight.normal)),
+                        subtitle: Text("ID: ${result.device.remoteId} | ${result.rssi} dBm", style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
+                              onPressed: () {
+                                ble.connectTrainer(result.device);
+                                _tabController.animateTo(0); // Basculer automatiquement sur le cockpit
+                              },
+                              child: const Text("Trainer", style: TextStyle(fontSize: 12)),
+                            ),
+                            const SizedBox(width: 6),
+                            OutlinedButton(
+                              style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFF43F5E), side: const BorderSide(color: Color(0xFFF43F5E)), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
+                              onPressed: () => ble.connectHeartRate(result.device),
+                              child: const Text("Cardio", style: TextStyle(fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
-                  subtitle: Text(
-                    "ID: ${result.device.remoteId} | RSSI: ${result.rssi} dBm",
-                    style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7), foregroundColor: Colors.white),
-                        onPressed: () => ble.connectTrainer(result.device),
-                        child: const Text("Trainer"),
-                      ),
-                      const SizedBox(width: 6),
-                      OutlinedButton(
-                        style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFF43F5E), side: const BorderSide(color: Color(0xFFF43F5E))),
-                        onPressed: () => ble.connectHeartRate(result.device),
-                        child: const Text("Cardio"),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
+          ),
         ],
       ),
     );
   }
 
-  // ─── CONSOLE DE DÉBOGAGE EN DIRECT ─────────────────────────────────────────
-  Widget _buildDebugConsole(BleSensorProvider ble) {
+  // ==============================================================================
+  // ONGLET 3 : DIAGNOSTIC & CONSOLE DE LOGS
+  // ==============================================================================
+  Widget _buildDiagnosticTab(BleSensorProvider ble) {
     return Container(
-      height: 180,
+      margin: const EdgeInsets.all(12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFF020617),
@@ -586,16 +520,17 @@ class _HardwareTestScreenState extends State<HardwareTestScreen> {
         border: Border.all(color: const Color(0xFF334155)),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: const [
-              Text(
-                "JOURNAL TECHNIQUE GATT / ÉVÉNEMENTS BLE",
-                style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+            children: [
+              const Text("LOGS TECHNIQUES BLE & FTMS", style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold)),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 18, color: Color(0xFF38BDF8)),
+                tooltip: "Forcer Request Control",
+                onPressed: ble.connectedTrainer != null ? () => ble.requestTrainerControl() : null,
               ),
-              Icon(Icons.terminal, color: Color(0xFF64748B), size: 16),
             ],
           ),
           const Divider(color: Color(0xFF1E293B)),
@@ -603,12 +538,17 @@ class _HardwareTestScreenState extends State<HardwareTestScreen> {
             child: ListView.builder(
               itemCount: ble.logs.length,
               itemBuilder: (context, index) {
-                return Text(
-                  ble.logs[index],
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 11,
-                    fontFamily: 'monospace',
+                final log = ble.logs[index];
+                Color logColor = const Color(0xFF94A3B8);
+                if (log.contains("✅") || log.contains("🎉")) logColor = const Color(0xFF34D399);
+                if (log.contains("❌") || log.contains("🛑")) logColor = const Color(0xFFF87171);
+                if (log.contains("⚠️")) logColor = const Color(0xFFFBBF24);
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2.0),
+                  child: Text(
+                    log,
+                    style: TextStyle(color: logColor, fontSize: 11, fontFamily: 'monospace'),
                   ),
                 );
               },
