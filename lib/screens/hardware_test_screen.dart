@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../providers/ble_sensor_provider.dart';
 
 class HardwareTestScreen extends StatefulWidget {
@@ -11,21 +10,6 @@ class HardwareTestScreen extends StatefulWidget {
 }
 
 class _HardwareTestScreenState extends State<HardwareTestScreen> {
-  @override
-  void initState() {
-    super.initState();
-    _checkPermissions();
-  }
-
-  Future<void> _checkPermissions() async {
-    await [
-      Permission.bluetooth,
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.location,
-    ].request();
-  }
-
   Color _getPowerZoneColor(int watts) {
     if (watts < 120) return const Color(0xFF64748B); // Z1 Récupération (Gris ardoise)
     if (watts < 170) return const Color(0xFF0284C7); // Z2 Endurance (Bleu ciel)
