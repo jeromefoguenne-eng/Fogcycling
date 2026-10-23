@@ -180,11 +180,25 @@
         helmet.position.set(0, 1.42, 0.15);
         aiRider.add(helmet);
 
+        // Halo lumineux au sol lorsqu'un coureur en ligne lance une ATTAQUE (>4.0 W/kg)
+        const haloGeo = new THREE.RingGeometry(0.45, 0.62, 24);
+        haloGeo.rotateX(-Math.PI / 2);
+        const haloMat = new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide });
+        const attackHalo = new THREE.Mesh(haloGeo, haloMat);
+        attackHalo.position.set(0, 0.06, 0);
+        attackHalo.visible = false;
+        aiRider.add(attackHalo);
+
         aiRider.userData = {
           baseZ: cfg.zOffset,
+          targetZ: cfg.zOffset,
           xOffset: cfg.xOffset,
+          targetX: cfg.xOffset,
           rWheel: rWheel,
           fWheel: fWheel,
+          jerseyMat: jerseyMat,
+          frameMat: frameMat,
+          attackHalo: attackHalo,
           phase: i * 1.1
         };
 
@@ -761,12 +775,15 @@
         workoutArch.rotation.y = Math.atan(getRoadCurveDerivative(archWorldZ));
       }
 
-      // Animation du Peloton 3D (Équipiers & Adversaires) sur la route
+      // Animation du Peloton 3D (Équipiers, Adversaires & Coureurs Multijoueur en Ligne)
       for (let a = 0; a < aiRidersPool.length; a++) {
         const ai = aiRidersPool[a];
         const ud = ai.userData;
-        // Légère oscillation longitudinale naturelle de peloton
-        const zPos = ud.baseZ + Math.sin(distanceTraveled * 0.08 + ud.phase) * 0.6;
+        // Interpolation Dead Reckoning 60 FPS fluide vers la cible réseau
+        ud.baseZ += (ud.targetZ - ud.baseZ) * 0.08;
+        ud.xOffset += (ud.targetX - ud.xOffset) * 0.08;
+
+        const zPos = ud.baseZ + Math.sin(distanceTraveled * 0.08 + ud.phase) * 0.45;
         const aiWorldZ = distanceTraveled + zPos;
         const curveX = getRoadCurveX(aiWorldZ);
         const slopeX = getRoadCurveDerivative(aiWorldZ);
@@ -843,6 +860,20 @@
       }
       if (playerJerseyMat && jerseyHexInt) {
         playerJerseyMat.color.setHex(Number(jerseyHexInt));
+      }
+    };
+
+    // Synchronisation Multijoueur Temps Réel (Phase 6 - Dead Reckoning)
+    window.updateMultiplayerRiders = function(ridersList) {
+      if (!Array.isArray(ridersList) || !aiRidersPool.length) return;
+      for (let i = 0; i < aiRidersPool.length && i < ridersList.length; i++) {
+        const rData = ridersList[i];
+        const ud = aiRidersPool[i].userData;
+        if (typeof rData.zOffset === 'number') ud.targetZ = rData.zOffset;
+        if (typeof rData.xOffset === 'number') ud.targetX = rData.xOffset;
+        if (rData.jersey && ud.jerseyMat) ud.jerseyMat.color.setHex(Number(rData.jersey));
+        if (rData.bike && ud.frameMat) ud.frameMat.color.setHex(Number(rData.bike));
+        if (ud.attackHalo) ud.attackHalo.visible = Boolean(rData.isAttacking);
       }
     };
 

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/career/races_and_peloton_models.dart';
+import '../core/multiplayer/multiplayer_models.dart';
 import '../core/rendering/cycling_3d_view.dart';
 import '../core/routes/mythical_routes.dart';
 import '../core/strava/strava_exporter.dart';
@@ -10,9 +11,11 @@ import '../core/workouts/workout_models.dart';
 import '../providers/athlete_profile_provider.dart';
 import '../providers/ble_sensor_provider.dart';
 import '../providers/career_race_provider.dart';
+import '../providers/multiplayer_provider.dart';
 import '../providers/workout_provider.dart';
 import 'hardware_test_screen.dart';
 import 'member_and_admin_screen.dart';
+import 'multiplayer_lobby_modal.dart';
 
 /// Écran principal de Fogcycling (Phases 2, 3 & 4) :
 /// - Monde 3D Cartoon v2 avec Peloton (Équipiers & Adversaires) et thèmes par col
@@ -47,6 +50,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
       final ble = Provider.of<BleSensorProvider>(context, listen: false);
       final workout = Provider.of<WorkoutProvider>(context, listen: false);
       final career = Provider.of<CareerRaceProvider>(context, listen: false);
+      final mp = Provider.of<MultiplayerProvider>(context, listen: false);
 
       final currentWatts = _isDemoMode
           ? (workout.isWorkoutActive ? workout.currentTargetWatts : _demoWatts)
@@ -65,6 +69,15 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
         heartRateBpm: ble.heartRateBpm,
         isErgWorkoutActive: workout.isWorkoutActive,
         ble: ble,
+      );
+
+      mp.tickMultiplayer(
+        playerWatts: currentWatts,
+        playerCadenceRpm: currentCadence,
+        playerSpeedKmh: rawSpeedKmh,
+        playerDistanceMeters: career.playerDistanceMeters,
+        currentSlopePercent: career.activeRoute.getSlopeAtDistance(career.playerDistanceMeters),
+        playerHeartRateBpm: ble.heartRateBpm,
       );
 
       if (rawSpeedKmh > 0.5 || currentWatts > 10) {
@@ -863,6 +876,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
     final workout = context.watch<WorkoutProvider>();
     final career = context.watch<CareerRaceProvider>();
     final profileProv = context.watch<AthleteProfileProvider>();
+    final mp = context.watch<MultiplayerProvider>();
 
     final activeWatts = _isDemoMode
         ? (workout.isWorkoutActive ? workout.currentTargetWatts : _demoWatts)
@@ -883,7 +897,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // ─── 1. MOTEUR 3D CARTOON WEBGL v2 (AVEC PELOTON IA, THÈMES & GARAGE) ───
+          // ─── 1. MOTEUR 3D CARTOON WEBGL v2 (AVEC PELOTON IA, THÈMES, GARAGE & MULTIJOUEUR) ───
           Positioned.fill(
             child: Cycling3dView(
               watts: activeWatts,
@@ -894,6 +908,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
               themeKey: career.activeRoute.visualTheme.jsKey,
               bikeHexColor: profileProv.selectedBike.displayColor.toARGB32(),
               jerseyHexColor: profileProv.selectedJersey.displayColor.toARGB32(),
+              multiplayerRidersJson: mp.relativeRidersJsonFor3d,
             ),
           ),
 
@@ -982,7 +997,35 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
                           ),
                           const SizedBox(width: 5),
 
-                          // 4. Séances & Plans Coach Stravos
+                          // 4. Multijoueur en Ligne & Salons Live (Phase 6)
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0D9488),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(Icons.public, size: 14),
+                            label: Text(
+                              "Live (${mp.playerRankInRoom}/${mp.roomRiders.length})",
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900),
+                            ),
+                            onPressed: () {
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: const Color(0xFF0F172A),
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                                ),
+                                builder: (_) => const MultiplayerLobbyModal(),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 5),
+
+                          // 5. Séances & Plans Coach Stravos
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: workout.isWorkoutActive ? Colors.amberAccent : const Color(0xFF0284C7),
@@ -1255,39 +1298,64 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Boutons Tactiques Radio Équipiers (1-Clic)
+                    // Boutons Tactiques Radio Équipiers & Ride On ! Multijoueur (1-Clic)
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
-                        children: TeammateRadioOrder.values.map((order) {
-                          final isSelected = career.activeRadioOrder == order;
-                          return Padding(
+                        children: [
+                          // Bouton rapide Ride On ! (Phase 6)
+                          Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 3),
                             child: InkWell(
-                              onTap: () => career.sendRadioOrder(order),
+                              onTap: () => mp.sendLiveEmote(LiveRaceEmote.rideOn),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                                 decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? Colors.amberAccent
-                                      : Colors.black.withValues(alpha: 0.78),
+                                  color: const Color(0xFF0284C7),
                                   borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: isSelected ? Colors.white : Colors.cyanAccent.withValues(alpha: 0.5),
-                                  ),
+                                  border: Border.all(color: Colors.cyanAccent),
                                 ),
                                 child: Text(
-                                  order.label,
-                                  style: TextStyle(
-                                    color: isSelected ? Colors.black : Colors.white,
+                                  "👍 Ride On ! (${mp.rideOnsReceivedCount})",
+                                  style: const TextStyle(
+                                    color: Colors.white,
                                     fontSize: 10,
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
                               ),
                             ),
-                          );
-                        }).toList(),
+                          ),
+                          ...TeammateRadioOrder.values.map((order) {
+                            final isSelected = career.activeRadioOrder == order;
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 3),
+                              child: InkWell(
+                                onTap: () => career.sendRadioOrder(order),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? Colors.amberAccent
+                                        : Colors.black.withValues(alpha: 0.78),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: isSelected ? Colors.white : Colors.cyanAccent.withValues(alpha: 0.5),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    order.label,
+                                    style: TextStyle(
+                                      color: isSelected ? Colors.black : Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
                       ),
                     ),
 

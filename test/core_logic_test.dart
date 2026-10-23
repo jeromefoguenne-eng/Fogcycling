@@ -7,7 +7,9 @@ import 'package:fogcycling/core/routes/mythical_routes.dart';
 import 'package:fogcycling/core/safety/safety_limiter.dart';
 import 'package:fogcycling/core/strava/strava_exporter.dart';
 import 'package:fogcycling/core/workouts/workout_models.dart';
+import 'package:fogcycling/core/multiplayer/multiplayer_models.dart';
 import 'package:fogcycling/providers/athlete_profile_provider.dart';
+import 'package:fogcycling/providers/multiplayer_provider.dart';
 
 void main() {
   group('FtmsDataParser Tests', () {
@@ -207,6 +209,62 @@ void main() {
       provider.setAdminSafetyMaxWattsCeiling(350); // Should be blocked and logged as RBAC_DENIED
       expect(provider.auditLogs.length, equals(countBeforeUnauthorizedSet + 1));
       expect(provider.auditLogs.first.category, equals('RBAC_DENIED'));
+    });
+  });
+
+  group('Phase 6 — Realtime Multiplayer, Dead Reckoning & Private Rooms Tests', () {
+    test('RiderSyncPacket extrapolates Dead Reckoning distance and serializes to JSON', () {
+      const packet = RiderSyncPacket(
+        riderId: 'peer_1',
+        displayName: 'Maxime V.',
+        countryFlag: '🇧🇪',
+        clubTag: 'LIEGE',
+        distanceMeters: 1000.0,
+        lateralOffsetX: -0.35,
+        speedMps: 10.0, // 36 km/h
+        watts: 252,
+        weightKg: 70.0,
+        cadenceRpm: 90,
+        jerseyHexColor: 0xFFFACC15,
+        bikeHexColor: 0xFFF97316,
+        timestampMs: 10000,
+      );
+
+      expect(packet.wattsPerKg, equals(3.6));
+      // 500ms later at 10 m/s -> +5.0 meters (1005.0m)
+      expect(packet.extrapolateDistanceAt(10500), closeTo(1005.0, 0.01));
+
+      final jsonMap = packet.toJson();
+      final decoded = RiderSyncPacket.fromJson(jsonMap);
+      expect(decoded.riderId, equals('peer_1'));
+      expect(decoded.watts, equals(252));
+    });
+
+    test('MultiplayerProvider manages rooms, private PIN rooms, live gaps and emotes', () {
+      final mp = MultiplayerProvider();
+      expect(mp.roomRiders.length, equals(9));
+      expect(mp.availableRooms.length, greaterThanOrEqualTo(5));
+
+      mp.tickMultiplayer(
+        playerWatts: 245,
+        playerCadenceRpm: 92,
+        playerSpeedKmh: 35.0,
+        playerDistanceMeters: 150.0,
+        currentSlopePercent: 4.5,
+      );
+
+      expect(mp.relativeRidersJsonFor3d, isNotEmpty);
+
+      mp.sendLiveEmote(LiveRaceEmote.rideOn);
+      expect(mp.playerActiveEmote, equals(LiveRaceEmote.rideOn));
+
+      final privRoom = mp.createAndJoinPrivateRoom(
+        roomTitle: 'Sortie Liège',
+        route: MythicalRoutesCatalog.getById('la_roche_aux_faucons'),
+        pinCode: '4000',
+      );
+      expect(privRoom.pinCode, equals('4000'));
+      expect(mp.activeRoom.roomId, equals(privRoom.roomId));
     });
   });
 }

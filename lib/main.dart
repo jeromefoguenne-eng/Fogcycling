@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'providers/athlete_profile_provider.dart';
 import 'providers/ble_sensor_provider.dart';
 import 'providers/career_race_provider.dart';
+import 'providers/multiplayer_provider.dart';
 import 'providers/workout_provider.dart';
 import 'screens/cycling_ride_screen.dart';
 
@@ -15,6 +16,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => WorkoutProvider()),
         ChangeNotifierProvider(create: (_) => CareerRaceProvider()),
         ChangeNotifierProvider(create: (_) => AthleteProfileProvider()),
+        ChangeNotifierProvider(create: (_) => MultiplayerProvider()),
       ],
       child: const FogcyclingApp(),
     ),

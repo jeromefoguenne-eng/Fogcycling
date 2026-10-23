@@ -13,6 +13,7 @@ class Cycling3dView extends StatefulWidget {
   final String themeKey;
   final int bikeHexColor;
   final int jerseyHexColor;
+  final String multiplayerRidersJson;
 
   const Cycling3dView({
     super.key,
@@ -24,6 +25,7 @@ class Cycling3dView extends StatefulWidget {
     this.themeKey = 'ventoux_lunar',
     this.bikeHexColor = 0xFFF97316,
     this.jerseyHexColor = 0xFF0284C7,
+    this.multiplayerRidersJson = '[]',
   });
 
   @override
@@ -37,6 +39,7 @@ class _Cycling3dViewState extends State<Cycling3dView> {
   String _lastSentTheme = '';
   int _lastBikeColor = 0;
   int _lastJerseyColor = 0;
+  String _lastMultiplayerJson = '';
 
   @override
   void initState() {
@@ -90,8 +93,14 @@ class _Cycling3dViewState extends State<Cycling3dView> {
     _lastBikeColor = rgbBike;
     _lastJerseyColor = rgbJersey;
 
+    final mpJs = (_lastMultiplayerJson != widget.multiplayerRidersJson &&
+            widget.multiplayerRidersJson != '[]')
+        ? "if (window.updateMultiplayerRiders) { window.updateMultiplayerRiders(${widget.multiplayerRidersJson}); }"
+        : "";
+    _lastMultiplayerJson = widget.multiplayerRidersJson;
+
     final jsCode =
-        "$themeJs$equipJs if (window.setRiderTelemetry) { window.setRiderTelemetry(${widget.watts}, ${widget.cadenceRpm.toStringAsFixed(1)}, ${widget.speedKmh.toStringAsFixed(1)}, ${widget.slopePercent.toStringAsFixed(1)}, ${widget.gear}); }";
+        "$themeJs$equipJs$mpJs if (window.setRiderTelemetry) { window.setRiderTelemetry(${widget.watts}, ${widget.cadenceRpm.toStringAsFixed(1)}, ${widget.speedKmh.toStringAsFixed(1)}, ${widget.slopePercent.toStringAsFixed(1)}, ${widget.gear}); }";
     _controller.runJavaScript(jsCode);
   }
 

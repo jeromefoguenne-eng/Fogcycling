@@ -65,13 +65,14 @@ Le développement de Fogcycling suit une méthodologie rigoureuse en 8 phases s�
 
 ---
 
-## Phase 6 — Multijoueur en Ligne & Courses Virtuelles
-- **Objectif** : Permettre à plusieurs cyclistes de rouler et de concourir simultanément sur le même parcours virtuel.
-- **Tâches Clés** :
-  1. Déployer le serveur multijoueur temps réel Colyseus (WebSockets).
-  2. Synchroniser les positions et les avatars dans la scène 3D avec interpolation Dead Reckoning.
-  3. Implémenter le classement de course en temps réel (serveur autoritaire) et détection des écarts chronométriques.
-- **Livrable** : Course multijoueur testée avec au moins 2 coureurs en réseau local puis en ligne.
+## Phase 6 — Multijoueur en Ligne & Courses Virtuelles Temps Réel — [IMPLÉMENTÉ & LIVRÉ ✅]
+- **Statut** : **Livré dans Fogcycling.apk le 23/10/2026**.
+- **Objectif** : Permettre à plusieurs cyclistes de rouler et de concourir simultanément sur le même parcours virtuel avec synchronisation temps réel.
+- **Tâches Clés Réalisées** :
+  1. Serveur WebSocket temps réel autonome (`server/multiplayer_ws_server.js`) + Client WebSocket avec bascule automatique en **Simulation Réseau Hybride 60 FPS** (`multiplayer_provider.dart`).
+  2. Protocole réseau `RiderSyncPacket` avec interpolation cinématique **Dead Reckoning** (`extrapolateDistanceAt`) et synchronisation WebGL 3D (`window.updateMultiplayerRiders`) avec halo lumineux d'attaque au sol.
+  3. **5 Salons Publics en Direct** (*Group Ride Wallonie, Défi Grimpeur Ventoux, Classique des Flandres, Poggio Critérium, Galibier HC*) + **Créateur de Salons Privés protégés par Code PIN à 4 chiffres**.
+  4. **Classement Temps Réel (W/kg & Écarts chronométriques au centième)** + **Système d'interactions 1-Clic ("👍 Ride On !", "🔄 Relais SVP !", "⚡ ATTAQUE !")** et fil d'activité live (`multiplayer_lobby_modal.dart`).
 
 ---
 
