@@ -897,9 +897,37 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
     final distanceKm = (career.playerDistanceMeters / 1000.0).toStringAsFixed(2);
     final zoneColor = _getPowerZoneColor(activeWatts, workout.userFtp);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          final key = event.logicalKey;
+          // Boutons "+" (Volume +, Flèche Haut/Droite, Page Up, Piste Suivante) -> Vitesse + Dure
+          if (key == LogicalKeyboardKey.audioVolumeUp ||
+              key == LogicalKeyboardKey.arrowUp ||
+              key == LogicalKeyboardKey.arrowRight ||
+              key == LogicalKeyboardKey.pageUp ||
+              key == LogicalKeyboardKey.mediaTrackNext ||
+              key == LogicalKeyboardKey.numpadAdd) {
+            ble.shiftUp();
+            return KeyEventResult.handled;
+          }
+          // Boutons "-" (Volume -, Flèche Bas/Gauche, Page Down, Piste Précédente) -> Vitesse + Souple
+          if (key == LogicalKeyboardKey.audioVolumeDown ||
+              key == LogicalKeyboardKey.arrowDown ||
+              key == LogicalKeyboardKey.arrowLeft ||
+              key == LogicalKeyboardKey.pageDown ||
+              key == LogicalKeyboardKey.mediaTrackPrevious ||
+              key == LogicalKeyboardKey.numpadSubtract) {
+            ble.shiftDown();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
         children: [
           // ─── 1. MOTEUR 3D CARTOON WEBGL v2 (AVEC PELOTON IA, THÈMES, GARAGE & MULTIJOUEUR) ───
           Positioned.fill(
@@ -1478,6 +1506,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
