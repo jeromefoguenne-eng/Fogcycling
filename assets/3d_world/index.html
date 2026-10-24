@@ -123,12 +123,13 @@
       ctx.fillRect(0, 200, 512, 12);
       ctx.fillRect(0, 340, 512, 12);
 
-      // Inscription "FOG" nette devant et dans le dos
+      // Inscription "FOG" nette sur le torse (centre UV = 256), les flancs et le dos
       ctx.fillStyle = '#facc15';
-      ctx.font = '900 76px Arial, sans-serif';
+      ctx.font = '900 72px Arial, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('FOG', 128, 298);
-      ctx.fillText('FOG', 384, 298);
+      ctx.fillText('FOG', 256, 296);
+      ctx.fillText('FOG', 0, 296);
+      ctx.fillText('FOG', 512, 296);
 
       return new THREE.CanvasTexture(canvas);
     }
@@ -239,13 +240,14 @@
     }
 
     function createMajesticAlpinePeaks() {
-      // Massifs rocheux facettés façon illustration avec neiges éternelles étincelantes
+      // Massifs rocheux facettés façon illustration avec neiges éternelles étincelantes (devant ET derrière le peloton !)
       const rockColors = [0x64748b, 0x475569, 0x94a3b8];
       const snowMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.05 });
+      const redMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
 
-      for (let i = 0; i < 32; i++) {
-        const height = 55 + (i % 5) * 24;
-        const radius = 32 + (i % 4) * 16;
+      for (let i = 0; i < 40; i++) {
+        const height = 42 + (i % 5) * 18;
+        const radius = 26 + (i % 4) * 12;
         const peakGroup = new THREE.Group();
 
         const rockGeo = new THREE.ConeGeometry(radius, height, 6);
@@ -259,16 +261,34 @@
         peakGroup.add(rock);
 
         // Névé / Sommet enneigé sculpté
-        const capH = height * 0.42;
-        const capR = radius * 0.43;
+        const capH = height * 0.44;
+        const capR = radius * 0.44;
         const capGeo = new THREE.ConeGeometry(capR, capH, 6);
         const cap = new THREE.Mesh(capGeo, snowMat);
         cap.position.y = height - capH / 2 - 2.5;
         peakGroup.add(cap);
 
-        const side = (i % 2 === 0) ? 1 : -1;
-        peakGroup.position.x = side * (55 + (i % 3) * 35);
-        peakGroup.position.z = 45 + i * 16;
+        // Tour emblématique de l'Observatoire du Mont Ventoux sur les sommets principaux
+        if (i === 2 || i === 22) {
+          const towerBase = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.6, 9, 12), snowMat);
+          towerBase.position.y = height + 1.5;
+          peakGroup.add(towerBase);
+          const spireRed = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 1.2, 11, 10), redMat);
+          spireRed.position.y = height + 10.5;
+          peakGroup.add(spireRed);
+        }
+
+        if (i < 20) {
+          // Horizon avant (+Z : visible en Cam Peloton & Hélico)
+          const side = (i % 2 === 0) ? 1 : -1;
+          peakGroup.position.x = (i < 6) ? ((i - 2.5) * 28) : (side * (42 + (i % 3) * 28));
+          peakGroup.position.z = 55 + i * 11;
+        } else {
+          // Horizon arrière & latéral (-Z : visible en Cam 3/4 Héroïque juste derrière le peloton !)
+          const idx = i - 20;
+          peakGroup.position.x = -95 + idx * 14;
+          peakGroup.position.z = -55 - (idx % 5) * 18;
+        }
         peakGroup.rotation.y = (i * 0.7);
         scene.add(peakGroup);
       }
@@ -672,53 +692,56 @@
       hairBack.position.set(0, 0.02, -0.02);
       headGroup.add(hairBack);
 
-      // Yeux, sourcils et sourire sur la face avant (+Z)
+      // Yeux, sourcils et sourire sur la face avant (+Z) bien dégagés sous le casque !
       const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const pupilMat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
-      for (let s of [-0.038, 0.038]) {
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 8), eyeWhiteMat);
-        eye.position.set(s, 0.015, 0.105);
+      const pupilMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
+      for (let s of [-0.040, 0.040]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.019, 10, 10), eyeWhiteMat);
+        eye.position.set(s, 0.012, 0.106);
         headGroup.add(eye);
 
-        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 8), pupilMat);
-        pupil.position.set(s, 0.015, 0.118);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.010, 8, 8), pupilMat);
+        pupil.position.set(s, 0.012, 0.121);
         headGroup.add(pupil);
 
-        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.007, 0.01), hairMat);
-        brow.position.set(s, 0.038, 0.110);
+        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.008, 0.012), hairMat);
+        brow.position.set(s, 0.036, 0.114);
+        brow.rotation.z = s < 0 ? 0.12 : -0.12;
         headGroup.add(brow);
       }
 
       // Nez et Sourire confiant
-      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.035, 8), warmSkinMat);
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.038, 8), warmSkinMat);
       nose.rotation.x = Math.PI / 2;
-      nose.position.set(0, -0.005, 0.122);
+      nose.position.set(0, -0.006, 0.124);
       headGroup.add(nose);
 
       const smile = new THREE.Mesh(
-        new THREE.TorusGeometry(0.024, 0.004, 6, 12, Math.PI),
+        new THREE.TorusGeometry(0.025, 0.005, 6, 12, Math.PI),
         new THREE.MeshBasicMaterial({ color: 0xffffff })
       );
       smile.rotation.x = Math.PI;
-      smile.position.set(0, -0.032, 0.108);
+      smile.position.set(0, -0.034, 0.110);
       headGroup.add(smile);
 
-      // Casque Aéro Pro Tri-Couleur (Noir / Orange / Bleu Cyan avec aérations)
-      const helmetBase = new THREE.Mesh(new THREE.SphereGeometry(0.135, 18, 18), darkCarbonMat);
-      helmetBase.scale.set(1.04, 0.78, 1.32);
-      helmetBase.position.set(0, 0.065, -0.01);
+      // Casque Aéro Pro Hémisphérique (placé haut sur le crâne pour dégager 100% du front et des yeux !)
+      const helmetShellGeo = new THREE.SphereGeometry(0.126, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.42);
+      const helmetBase = new THREE.Mesh(helmetShellGeo, darkCarbonMat);
+      helmetBase.scale.set(1.02, 0.88, 1.08);
+      helmetBase.position.set(0, 0.052, -0.018);
       headGroup.add(helmetBase);
 
-      const helmetOrangeStripe = new THREE.Mesh(new THREE.SphereGeometry(0.138, 16, 16), frameOrangeMat);
-      helmetOrangeStripe.scale.set(0.65, 0.80, 1.34);
-      helmetOrangeStripe.position.set(0, 0.07, 0.0);
+      const helmetOrangeStripe = new THREE.Mesh(helmetShellGeo, frameOrangeMat);
+      helmetOrangeStripe.scale.set(0.62, 0.91, 1.10);
+      helmetOrangeStripe.position.set(0, 0.055, -0.018);
       headGroup.add(helmetOrangeStripe);
 
-      const helmetCyanStripe = new THREE.Mesh(new THREE.SphereGeometry(0.137, 16, 16), cyanBandMat);
-      helmetCyanStripe.scale.set(0.88, 0.65, 1.30);
-      helmetCyanStripe.position.set(0, 0.055, 0.01);
+      const helmetCyanStripe = new THREE.Mesh(helmetShellGeo, cyanBandMat);
+      helmetCyanStripe.scale.set(0.86, 0.86, 1.06);
+      helmetCyanStripe.position.set(0, 0.053, -0.018);
       headGroup.add(helmetCyanStripe);
 
+      headGroup.rotation.y = 0.22;
       cyclistGroup.add(headGroup);
 
       // Bras musclés avec manches bicolores Jaune/Bleu et gants noirs
@@ -773,14 +796,19 @@
         0x14b8a6  // Astana / Bahrain
       ];
 
-      const darkMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 });
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.45 });
+      const shortsMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
       const skinMat = new THREE.MeshStandardMaterial({ color: 0xfdba74, roughness: 0.5 });
 
-      // Géométries partagées en mémoire GPU pour afficher 150 cyclistes à 60 FPS sans ralentissement !
-      const sharedTorsoGeo = new THREE.CylinderGeometry(0.135, 0.115, 0.40, 8);
-      const sharedHeadGeo = new THREE.SphereGeometry(0.105, 8, 8);
-      const sharedHelmetGeo = new THREE.SphereGeometry(0.12, 8, 8);
-      const sharedLegGeo = new THREE.CylinderGeometry(0.048, 0.035, 0.48, 6);
+      // Géométries partagées en mémoire GPU pour afficher 150 vrais vélos et cyclistes à 60 FPS !
+      const sharedTorsoGeo = new THREE.CylinderGeometry(0.132, 0.112, 0.39, 8);
+      const sharedPelvisGeo = new THREE.SphereGeometry(0.125, 8, 8);
+      const sharedHeadGeo = new THREE.SphereGeometry(0.102, 8, 8);
+      const sharedHelmetGeo = new THREE.SphereGeometry(0.118, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      const sharedLegGeo = new THREE.CylinderGeometry(0.048, 0.034, 0.46, 6);
+      const sharedArmGeo = new THREE.CylinderGeometry(0.034, 0.026, 0.44, 6);
+      const sharedTubeGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.58, 6);
+      const sharedBarGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.36, 6);
 
       // Matériaux partagés par équipe (9 équipes)
       const teamMats = teamJerseyColors.map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.42 }));
@@ -789,8 +817,9 @@
         const rider = new THREE.Group();
         const isTeammate = (i >= 40 && i <= 44);
         const jMat = isTeammate ? teamMats[0] : teamMats[i % teamMats.length];
+        const bikeMat = isTeammate ? teamMats[5] : darkMat;
 
-        // Roues avant et arrière
+        // Roues avant et arrière à flancs beiges
         const rWheel = createBikeWheel(0.32, false);
         rWheel.position.set(0, 0.32, -0.46);
         rider.add(rWheel);
@@ -799,28 +828,59 @@
         fWheel.position.set(0, 0.32, 0.46);
         rider.add(fWheel);
 
-        // Cadre épuré
-        const frameTube = new THREE.Mesh(
-          new THREE.BoxGeometry(0.03, 0.38, 0.78),
-          isTeammate ? teamMats[5] : darkMat
-        );
-        frameTube.position.set(0, 0.54, 0.0);
-        rider.add(frameTube);
+        // Vrai cadre de vélo tubulaire (Tube supérieur, Tube diagonal, Tube de selle, Fourche & Guidon)
+        const topTube = new THREE.Mesh(sharedTubeGeo, bikeMat);
+        topTube.rotation.x = Math.PI / 2;
+        topTube.position.set(0, 0.76, 0.06);
+        rider.add(topTube);
+
+        const downTube = new THREE.Mesh(sharedTubeGeo, bikeMat);
+        downTube.rotation.x = Math.PI / 3.2;
+        downTube.position.set(0, 0.52, 0.14);
+        rider.add(downTube);
+
+        const seatTube = new THREE.Mesh(sharedTubeGeo, bikeMat);
+        seatTube.rotation.x = -0.26;
+        seatTube.position.set(0, 0.58, -0.18);
+        rider.add(seatTube);
+
+        const forkTube = new THREE.Mesh(sharedTubeGeo, bikeMat);
+        forkTube.rotation.x = -0.24;
+        forkTube.position.set(0, 0.56, 0.39);
+        rider.add(forkTube);
+
+        const hBar = new THREE.Mesh(sharedBarGeo, darkMat);
+        hBar.rotation.z = Math.PI / 2;
+        hBar.position.set(0, 0.84, 0.42);
+        rider.add(hBar);
+
+        // Cuissard & Bassin
+        const pelvis = new THREE.Mesh(sharedPelvisGeo, shortsMat);
+        pelvis.position.set(0, 0.94, -0.22);
+        rider.add(pelvis);
 
         // Buste & Maillot d'équipe
         const torso = new THREE.Mesh(sharedTorsoGeo, jMat);
-        torso.position.set(0, 1.10, -0.04);
+        torso.position.set(0, 1.12, -0.04);
         torso.rotation.x = Math.PI / 3.4;
         rider.add(torso);
 
+        // Bras tendus vers le guidon
+        for (let s of [-0.15, 0.15]) {
+          const arm = new THREE.Mesh(sharedArmGeo, skinMat);
+          arm.position.set(s, 1.04, 0.24);
+          arm.rotation.x = -Math.PI / 3.8;
+          rider.add(arm);
+        }
+
         // Tête & Casque profilé
         const head = new THREE.Mesh(sharedHeadGeo, skinMat);
-        head.position.set(0, 1.36, 0.14);
+        head.position.set(0, 1.35, 0.14);
         rider.add(head);
 
         const helmet = new THREE.Mesh(sharedHelmetGeo, jMat);
-        helmet.scale.set(1.0, 0.82, 1.25);
-        helmet.position.set(0, 1.40, 0.14);
+        helmet.scale.set(1.02, 0.92, 1.25);
+        helmet.position.set(0, 1.38, 0.14);
         rider.add(helmet);
 
         // Jambes animées gauche/droite (oscillation en opposition de phase)
@@ -988,12 +1048,12 @@
 
       // Positionnement de la caméra selon le mode actif
       if (cameraMode === 0) {
-        // MODE 0 : VUE 3/4 HÉROÏQUE ILLUSTRATION (exactement le cadrage de l'aperçu !)
-        const targetCamX = riderCurveX + 1.85;
-        camera.position.x += (targetCamX - camera.position.x) * 0.10;
-        camera.position.y += (1.52 - camera.position.y) * 0.10;
-        camera.position.z += (1.75 - camera.position.z) * 0.10;
-        camera.lookAt(riderCurveX - 0.3, 1.08, -0.2);
+        // MODE 0 : VUE 3/4 HÉROÏQUE ILLUSTRATION (cadre l'intégralité du vélo + cycliste entre les barres HUD)
+        const targetCamX = riderCurveX + 2.55;
+        camera.position.x += (targetCamX - camera.position.x) * 0.14;
+        camera.position.y += (1.48 - camera.position.y) * 0.14;
+        camera.position.z += (2.55 - camera.position.z) * 0.14;
+        camera.lookAt(riderCurveX - 0.35, 1.08, -0.35);
       } else if (cameraMode === 1) {
         // MODE 1 : VUE IMMERSION ARRIÈRE AU CŒUR DU PELOTON DE 150 COUREURS
         camera.position.x += (riderCurveX - camera.position.x) * 0.10;
