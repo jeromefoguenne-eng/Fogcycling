@@ -62,13 +62,37 @@ enum TeamStrategy {
 /// Ordres radio tactiques envoyés en direct pendant la course
 enum TeammateRadioOrder {
   shelterLeader('🛡️ M\'abriter', 'Un équipier se place 2m devant vous (-35% vent)'),
-  pullPeloton('🚂 Durcir l\'allure', 'Vos équipiers roulent à bloc en tête (+22% Watts)'),
+  pullPeloton('🚂 Remonter Peloton', 'Vos équipiers vous remontent vers la tête des 150 coureurs'),
   leadOutSprint('⚡ Poisson-Pilote', 'Train de sprint maximal pendant 25 secondes'),
   recover('🔋 Récupérer', 'Vos équipiers se replacent dans les roues pour recharger l\'énergie');
 
   final String label;
   final String tooltip;
   const TeammateRadioOrder(this.label, this.tooltip);
+}
+
+/// Tactique de placement individuel au sein du Peloton de 150 coureurs
+enum PelotonPositionTactic {
+  stayInPack(
+    '🛡️ Cœur Peloton (-40% vent)',
+    'Économie maximale d\'énergie au chaud, mais recul progressif et risque d\'enfermement/cassure.',
+    0.0,
+  ),
+  holdTop25(
+    '🎯 Frotter Top 25 (-28% vent)',
+    'Défend votre place dans les 25 premiers pour aborder les côtes et éviter les cassures.',
+    0.45,
+  ),
+  moveUpOnWing(
+    '⚡ Remonter sur l\'Aile (-12% vent)',
+    'Déboîte sur l\'extérieur pour doubler rapidement le peloton (demande un effort énergétique).',
+    -1.45,
+  );
+
+  final String label;
+  final String description;
+  final double targetLateralLane;
+  const PelotonPositionTactic(this.label, this.description, this.targetLateralLane);
 }
 
 /// Spécialité physiologique d'un coureur IA (Adversaire ou Équipier)

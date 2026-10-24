@@ -15,6 +15,9 @@ class Cycling3dView extends StatefulWidget {
   final int jerseyHexColor;
   final String multiplayerRidersJson;
   final String graphicsQualityKey;
+  final int playerRank150;
+  final double lateralLane;
+  final int cameraMode;
 
   const Cycling3dView({
     super.key,
@@ -28,6 +31,9 @@ class Cycling3dView extends StatefulWidget {
     this.jerseyHexColor = 0xFF0284C7,
     this.multiplayerRidersJson = '[]',
     this.graphicsQualityKey = 'balanced',
+    this.playerRank150 = 48,
+    this.lateralLane = 0.0,
+    this.cameraMode = 0,
   });
 
   @override
@@ -43,6 +49,7 @@ class _Cycling3dViewState extends State<Cycling3dView> {
   int _lastJerseyColor = 0;
   String _lastMultiplayerJson = '';
   String _lastQualityKey = '';
+  int _lastCameraMode = -1;
 
   @override
   void initState() {
@@ -75,7 +82,9 @@ class _Cycling3dViewState extends State<Cycling3dView> {
     if (now.difference(_lastTelemetryUpdate).inMilliseconds >= 60 ||
         oldWidget.themeKey != widget.themeKey ||
         oldWidget.bikeHexColor != widget.bikeHexColor ||
-        oldWidget.jerseyHexColor != widget.jerseyHexColor) {
+        oldWidget.jerseyHexColor != widget.jerseyHexColor ||
+        oldWidget.cameraMode != widget.cameraMode ||
+        oldWidget.lateralLane != widget.lateralLane) {
       _lastTelemetryUpdate = now;
       _sendTelemetryToJs();
     }
@@ -107,8 +116,13 @@ class _Cycling3dViewState extends State<Cycling3dView> {
         : "";
     _lastQualityKey = widget.graphicsQualityKey;
 
+    final camJs = (_lastCameraMode != widget.cameraMode)
+        ? "if (window.setCameraMode) { window.setCameraMode(${widget.cameraMode}); }"
+        : "";
+    _lastCameraMode = widget.cameraMode;
+
     final jsCode =
-        "$themeJs$equipJs$mpJs$qualJs if (window.setRiderTelemetry) { window.setRiderTelemetry(${widget.watts}, ${widget.cadenceRpm.toStringAsFixed(1)}, ${widget.speedKmh.toStringAsFixed(1)}, ${widget.slopePercent.toStringAsFixed(1)}, ${widget.gear}); }";
+        "$themeJs$equipJs$mpJs$qualJs$camJs if (window.setRiderTelemetry) { window.setRiderTelemetry(${widget.watts}, ${widget.cadenceRpm.toStringAsFixed(1)}, ${widget.speedKmh.toStringAsFixed(1)}, ${widget.slopePercent.toStringAsFixed(1)}, ${widget.gear}, ${widget.playerRank150}, ${widget.lateralLane.toStringAsFixed(2)}); }";
     _controller.runJavaScript(jsCode);
   }
 

@@ -11,6 +11,7 @@ import 'package:fogcycling/core/multiplayer/multiplayer_models.dart';
 import 'package:fogcycling/core/coach/coach_stravos_ai_engine.dart';
 import 'package:fogcycling/core/settings/device_performance_and_storage.dart';
 import 'package:fogcycling/providers/athlete_profile_provider.dart';
+import 'package:fogcycling/providers/career_race_provider.dart';
 import 'package:fogcycling/providers/multiplayer_provider.dart';
 
 void main() {
@@ -316,6 +317,18 @@ void main() {
       profile.setGraphicsQuality(GraphicsQualityPreset.ecoBattery);
       expect(profile.graphicsQuality, equals(GraphicsQualityPreset.ecoBattery));
       expect(profile.graphicsQuality.jsKey, equals('eco'));
+    });
+
+    test('CareerRaceProvider initializes 150-cyclist peloton and manages PelotonPositionTactic', () {
+      final career = CareerRaceProvider();
+      expect(career.peloton.length, equals(149));
+      expect(career.totalPelotonSize, equals(150));
+      expect(career.teammates.length, equals(3));
+      expect(career.positionTactic, equals(PelotonPositionTactic.stayInPack));
+
+      career.setPositionTactic(PelotonPositionTactic.moveUpOnWing);
+      expect(career.positionTactic, equals(PelotonPositionTactic.moveUpOnWing));
+      expect(career.positionTactic.targetLateralLane, closeTo(-1.45, 0.01));
     });
   });
 }

@@ -27,13 +27,15 @@ class CareerRaceProvider extends ChangeNotifier {
   AiDifficultyLevel _aiLevel = AiDifficultyLevel.allLevels[3]; // Niveau 4 = 200W par défaut
   TeamStrategy _teamStrategy = TeamStrategy.protectLeader;
   TeammateRadioOrder _activeRadioOrder = TeammateRadioOrder.shelterLeader;
+  PelotonPositionTactic _positionTactic = PelotonPositionTactic.stayInPack;
 
-  // ─── 4. PELOTON (3 ÉQUIPIERS + 9 ADVERSAIRES PRINCIPAUX) ──────────────────
+  // ─── 4. PELOTON DE 150 COUREURS (1 JOUEUR + 3 ÉQUIPIERS + 146 ADVERSAIRES) ──
   final List<PelotonRider> _peloton = [];
   double _playerDistanceMeters = 0.0;
   int _playerGcTimeSeconds = 0;
   int _playerKomPoints = 0;
   int _playerSprintPoints = 0;
+  bool _isBoxedInPack = false;
 
   // Franchissement des banderoles sur l'étape en cours
   bool _sprintBannerCrossed = false;
@@ -65,6 +67,8 @@ class CareerRaceProvider extends ChangeNotifier {
   AiDifficultyLevel get aiLevel => _aiLevel;
   TeamStrategy get teamStrategy => _teamStrategy;
   TeammateRadioOrder get activeRadioOrder => _activeRadioOrder;
+  PelotonPositionTactic get positionTactic => _positionTactic;
+  bool get isBoxedInPack => _isBoxedInPack;
   List<PelotonRider> get peloton => List.unmodifiable(_peloton);
   List<PelotonRider> get teammates => _peloton.where((r) => r.isTeammate).toList();
   double get playerDistanceMeters => _playerDistanceMeters;
@@ -76,7 +80,10 @@ class CareerRaceProvider extends ChangeNotifier {
   String get draftStatusLabel => _draftStatusLabel;
   List<StravaTrackpoint> get stravaTrackpoints => List.unmodifiable(_stravaTrackpoints);
 
-  /// Rang actuel du joueur sur la route (1er à 13e)
+  /// Nombre total de cyclistes dans le peloton (149 IA + 1 Joueur = 150 cyclistes)
+  int get totalPelotonSize => _peloton.length + 1;
+
+  /// Rang actuel du joueur sur la route (1er à 150e)
   int get playerLiveRankOnRoad {
     int ahead = _peloton.where((r) => r.distanceMeters > _playerDistanceMeters).length;
     return ahead + 1;
@@ -119,7 +126,7 @@ class CareerRaceProvider extends ChangeNotifier {
         distanceMeters: 1.8,
         lateralOffsetMeters: 0.2,
       ),
-      // 9 Rivaux IA (Grimpeurs, Sprinteurs, Flandriens, Baroudeurs)
+      // 9 Leaders Rivaux IA (Grimpeurs, Sprinteurs, Flandriens, Baroudeurs)
       PelotonRider(
         id: 'ai_1',
         name: 'Tadej Kovac',
@@ -128,7 +135,7 @@ class CareerRaceProvider extends ChangeNotifier {
         isTeammate: false,
         specialty: RiderSpecialty.climber,
         powerFactor: 1.06,
-        distanceMeters: 6.0,
+        distanceMeters: 18.0,
         lateralOffsetMeters: -0.8,
       ),
       PelotonRider(
@@ -139,7 +146,7 @@ class CareerRaceProvider extends ChangeNotifier {
         isTeammate: false,
         specialty: RiderSpecialty.climber,
         powerFactor: 1.05,
-        distanceMeters: 5.2,
+        distanceMeters: 16.5,
         lateralOffsetMeters: 0.9,
       ),
       PelotonRider(
@@ -150,7 +157,7 @@ class CareerRaceProvider extends ChangeNotifier {
         isTeammate: false,
         specialty: RiderSpecialty.rouleur,
         powerFactor: 1.04,
-        distanceMeters: 8.5,
+        distanceMeters: 21.0,
         lateralOffsetMeters: -0.2,
       ),
       PelotonRider(
@@ -161,7 +168,7 @@ class CareerRaceProvider extends ChangeNotifier {
         isTeammate: false,
         specialty: RiderSpecialty.puncheur,
         powerFactor: 1.03,
-        distanceMeters: 4.5,
+        distanceMeters: 14.5,
         lateralOffsetMeters: 1.1,
       ),
       PelotonRider(
@@ -172,7 +179,7 @@ class CareerRaceProvider extends ChangeNotifier {
         isTeammate: false,
         specialty: RiderSpecialty.puncheur,
         powerFactor: 1.04,
-        distanceMeters: 7.0,
+        distanceMeters: 19.0,
         lateralOffsetMeters: -1.1,
       ),
       PelotonRider(
@@ -183,7 +190,7 @@ class CareerRaceProvider extends ChangeNotifier {
         isTeammate: false,
         specialty: RiderSpecialty.sprinter,
         powerFactor: 0.98,
-        distanceMeters: 3.0,
+        distanceMeters: 9.0,
         lateralOffsetMeters: 0.7,
       ),
       PelotonRider(
@@ -194,7 +201,7 @@ class CareerRaceProvider extends ChangeNotifier {
         isTeammate: false,
         specialty: RiderSpecialty.climber,
         powerFactor: 1.01,
-        distanceMeters: 12.0, // Baroudeur d'échappée
+        distanceMeters: 32.0, // Baroudeur d'échappée
         lateralOffsetMeters: 0.0,
       ),
       PelotonRider(
@@ -205,7 +212,7 @@ class CareerRaceProvider extends ChangeNotifier {
         isTeammate: false,
         specialty: RiderSpecialty.puncheur,
         powerFactor: 0.99,
-        distanceMeters: 14.0, // Baroudeur d'échappée
+        distanceMeters: 34.0, // Baroudeur d'échappée
         lateralOffsetMeters: -0.6,
       ),
       PelotonRider(
@@ -216,10 +223,50 @@ class CareerRaceProvider extends ChangeNotifier {
         isTeammate: false,
         specialty: RiderSpecialty.rouleur,
         powerFactor: 1.00,
-        distanceMeters: 2.5,
+        distanceMeters: 11.5,
         lateralOffsetMeters: -0.9,
       ),
     ]);
+
+    // Ajout de 137 coureurs de peloton WorldTour pour former un peloton massif de 150 cyclistes (1 joueur + 149 IA)
+    const teams = [
+      'UAE Virtuel',
+      'Nordic Lease',
+      'Soudal Quick',
+      'Alpecin Aero',
+      'Iberia Movi',
+      'Squadra Corsa',
+      'Armorique',
+      'Bora Alpine',
+      'Lidl Trekking',
+      'Inéos Grenadier',
+    ];
+    const flags = ['🇧🇪', '🇫🇷', '🇮🇹', '🇪🇸', '🇳🇱', '🇩🇰', '🇸🇮', '🇩🇪', '🇬🇧', '🇨🇴'];
+    const specialties = RiderSpecialty.values;
+
+    for (int idx = 10; idx <= 146; idx++) {
+      // Répartition spatiale réaliste : de +30m devant le joueur (tête de peloton) à -42m derrière (queue de peloton)
+      // Le joueur démarre ainsi autour de la 55e place sur 150 au cœur du peloton !
+      final normalizedRank = (idx - 10) / 136.0; // 0.0 -> 1.0
+      final initialDist = 28.0 - (normalizedRank * 70.0);
+      final laneCol = (idx % 5) - 2; // -2, -1, 0, 1, 2
+      final latOffset = laneCol * 0.58;
+      final factor = 0.93 + ((idx * 7) % 14) * 0.01; // 0.93 à 1.06
+
+      _peloton.add(
+        PelotonRider(
+          id: 'ai_$idx',
+          name: 'Coureur #${idx + 3} (${teams[idx % teams.length]})',
+          countryFlag: flags[idx % flags.length],
+          teamName: teams[idx % teams.length],
+          isTeammate: false,
+          specialty: specialties[idx % specialties.length],
+          powerFactor: factor,
+          distanceMeters: initialDist,
+          lateralOffsetMeters: latOffset,
+        ),
+      );
+    }
   }
 
   // ─── CHANGEMENT LIBRE DU LIEU / PARCOURS (POUR SORTIE LIBRE OU WORKOUT) ────
@@ -264,6 +311,12 @@ class CareerRaceProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setPositionTactic(PelotonPositionTactic tactic) {
+    _positionTactic = tactic;
+    _raceRadioBannerMessage = "🚴 Placement Peloton (150 coureurs) : ${tactic.label} — ${tactic.description}";
+    notifyListeners();
+  }
+
   // ─── LANCEMENT D'UN GRAND TOUR OU D'UNE CLASSIQUE ──────────────────────────
   void startCompetitionStage(
     CyclingCompetition competition,
@@ -283,11 +336,11 @@ class CareerRaceProvider extends ChangeNotifier {
     }
 
     _raceRadioBannerMessage =
-        "🏁 DÉPART : ${competition.title} — ${stage.title} | IA Niv.${_aiLevel.level} (${_aiLevel.averageWatts}W)";
+        "🏁 DÉPART : ${competition.title} — ${stage.title} | Peloton 150 coureurs (IA ${aiLevel.averageWatts}W)";
     notifyListeners();
   }
 
-  // ─── BOUCLE PHYSIQUE 1 HZ : ASPIRATION, IA, PENTE DYNAMIQUE & STRAVA ───────
+  // ─── BOUCLE PHYSIQUE 1 HZ : ASPIRATION, PELOTON 150, PLACEMENT & STRAVA ────
   void tickSimulation({
     required int playerWatts,
     required double playerCadenceRpm,
@@ -297,6 +350,7 @@ class CareerRaceProvider extends ChangeNotifier {
     required BleSensorProvider ble,
   }) {
     final currentSlope = _activeRoute.getSlopeAtDistance(_playerDistanceMeters);
+    final baseAiWatts = _aiLevel.averageWatts.toDouble();
 
     // 1. Si on n'est PAS en mode ERG d'entraînement, ajuster automatiquement la pente du Zwift Hub !
     if (!isErgWorkoutActive && (currentSlope - _lastAppliedSlope).abs() >= 0.4) {
@@ -304,42 +358,77 @@ class CareerRaceProvider extends ChangeNotifier {
       ble.setSimulatedSlope(currentSlope);
     }
 
-    // 2. Calcul de l'Aspiration (Drafting) selon la position des équipiers et adversaires devant
+    // 2. Calcul de l'Aspiration (Drafting) & Densité autour du joueur dans le Peloton de 150 coureurs
     int ridersCloselyAhead = 0;
+    int ridersBoxingPlayer = 0;
     bool teammateDirectlyDrafting = false;
 
     for (final rider in _peloton) {
       final gap = rider.distanceMeters - _playerDistanceMeters;
-      if (gap >= 0.8 && gap <= 11.0) {
+      if (gap >= 0.8 && gap <= 12.0) {
         ridersCloselyAhead++;
         if (rider.isTeammate && gap <= 5.5) {
           teammateDirectlyDrafting = true;
         }
       }
+      if (gap >= -2.0 && gap <= 4.8) {
+        ridersBoxingPlayer++;
+      }
     }
 
-    //En montée raide (> 7.5%), la vitesse chute et l'effet d'abri aérodynamique diminue naturellement
+    // En montée raide (> 7.5%), la vitesse chute et l'effet d'abri aérodynamique diminue naturellement
     final aeroSlopeAttenuation = currentSlope > 7.5 ? 0.35 : (currentSlope > 4.5 ? 0.70 : 1.0);
 
-    if (teammateDirectlyDrafting || _activeRadioOrder == TeammateRadioOrder.shelterLeader) {
+    // Gestion tactique du placement dans le peloton de 150 cyclistes :
+    // - Sur l'Aile (moveUpOnWing) : couloir extérieur dégagé (0 enfermement), mais seulement 12% d'abri du vent !
+    // - Frotter Top 25 (holdTop25) : dépense modérée pour garder sa place devant (-28% vent).
+    // - Cœur Peloton (stayInPack) : abri maximal (-40% vent), mais risque d'enfermement et recul naturel si on relâche.
+    _isBoxedInPack = false;
+
+    if (_positionTactic == PelotonPositionTactic.moveUpOnWing) {
+      final wingDraft = ridersCloselyAhead >= 1 ? 12.0 : 0.0;
+      _currentDraftSavingPercent = (wingDraft * aeroSlopeAttenuation).roundToDouble();
+      _draftStatusLabel = "⚡ SUR L'AILE (-${_currentDraftSavingPercent.toInt()}% VENT • COULOIR LIBRE)";
+    } else if (_positionTactic == PelotonPositionTactic.holdTop25) {
+      final top25Draft = ridersCloselyAhead >= 2 ? 28.0 : (ridersCloselyAhead == 1 ? 18.0 : 0.0);
+      _currentDraftSavingPercent = (top25Draft * aeroSlopeAttenuation).roundToDouble();
+      _draftStatusLabel = "🎯 FROTTER TOP 25 (-${_currentDraftSavingPercent.toInt()}% VENT)";
+    } else if (teammateDirectlyDrafting || _activeRadioOrder == TeammateRadioOrder.shelterLeader) {
       _currentDraftSavingPercent = (35.0 * aeroSlopeAttenuation).roundToDouble();
       _draftStatusLabel = "🛡️ ABRI ÉQUIPIER (-${_currentDraftSavingPercent.toInt()}% W)";
     } else if (ridersCloselyAhead >= 3) {
       _currentDraftSavingPercent = (40.0 * aeroSlopeAttenuation).roundToDouble();
-      _draftStatusLabel = "🛡️ AU CHAUD PELOTON (-${_currentDraftSavingPercent.toInt()}% W)";
+      _isBoxedInPack = ridersBoxingPlayer >= 10 && _activeRadioOrder != TeammateRadioOrder.pullPeloton;
+      _draftStatusLabel = _isBoxedInPack
+          ? "⚠️ ENFERMÉ PELOTON (-${_currentDraftSavingPercent.toInt()}% W • BLOQUÉ)"
+          : "🛡️ CŒUR PELOTON (-${_currentDraftSavingPercent.toInt()}% W)";
     } else if (ridersCloselyAhead >= 1) {
       _currentDraftSavingPercent = (25.0 * aeroSlopeAttenuation).roundToDouble();
       _draftStatusLabel = "🚴 DANS LA ROUE (-${_currentDraftSavingPercent.toInt()}% W)";
     } else {
       _currentDraftSavingPercent = 0.0;
-      _draftStatusLabel = "💨 PLEIN VENT (0% ABRI)";
+      _draftStatusLabel = "💨 PLEIN VENT EN TÊTE (0% ABRI)";
     }
 
-    // 3. Calcul de la vitesse effective du joueur (tenant compte des Watts, de la Pente, des Pavés et de l'Aspiration !)
+    // 3. Calcul de la vitesse effective du joueur (tenant compte des Watts, Pente, Pavés, Aspiration & Placement 150)
     double effectivePlayerSpeedKmh = rawTrainerSpeedKmh;
     if (playerWatts > 10) {
+      double tacticalWatts = playerWatts.toDouble();
+      // Si vos équipiers tirent un train de remontée (pullPeloton), ils ouvrent la route !
+      if (_activeRadioOrder == TeammateRadioOrder.pullPeloton && teammates.any((t) => t.staminaPercent > 15)) {
+        tacticalWatts *= 1.07;
+      }
+      // Si vous déboîtez sur l'aile (moveUpOnWing) en appuyant fort, la trajectoire est 100% fluide pour doubler
+      if (_positionTactic == PelotonPositionTactic.moveUpOnWing && playerWatts >= baseAiWatts * 0.98) {
+        tacticalWatts *= 1.05;
+      }
+      // À l'inverse, si vous restez enfermé au cœur du peloton (isBoxedInPack) et tentez de sprinter sans déboîter sur l'aile, vous êtes gêné par la masse des 150 coureurs !
+      if (_isBoxedInPack && playerWatts > baseAiWatts * 1.08) {
+        tacticalWatts = baseAiWatts * 1.03;
+      }
+
       effectivePlayerSpeedKmh = _computePhysicalSpeedKmh(
-        watts: playerWatts.toDouble(),
+        watts: tacticalWatts,
         weightKg: 72.0,
         slopePercent: currentSlope,
         crr: _activeRoute.rollingResistanceCrr,
@@ -348,12 +437,23 @@ class CareerRaceProvider extends ChangeNotifier {
     }
 
     if (effectivePlayerSpeedKmh > 0.5) {
-      _playerDistanceMeters += (effectivePlayerSpeedKmh / 3.6);
+      double stepMeters = effectivePlayerSpeedKmh / 3.6;
+      // Effet "Machine à laver" du peloton de 150 coureurs : si on reste passif dans le cœur du paquet sous la puissance du peloton, on recule naturellement !
+      if (_positionTactic == PelotonPositionTactic.stayInPack &&
+          playerWatts < baseAiWatts * 0.94 &&
+          ridersCloselyAhead >= 8) {
+        stepMeters -= 0.28;
+      }
+      _playerDistanceMeters += math.max(0.0, stepMeters);
       _playerGcTimeSeconds++;
     }
 
-    // 4. Mise à jour des 12 coureurs IA (3 Équipiers + 9 Adversaires) selon le Niveau IA (170W -> 260W)
-    final baseAiWatts = _aiLevel.averageWatts.toDouble();
+    // Alerte tactique Radio si le joueur recule trop loin (> 65e/150) à l'approche d'un mur ou d'un sprint
+    final currentRank = playerLiveRankOnRoad;
+    if (currentRank > 65 && currentSlope >= 5.0 && _positionTactic == PelotonPositionTactic.stayInPack) {
+      _raceRadioBannerMessage =
+          "⚠️ Cassure en côte (${currentRank}e/150) ! Cliquez sur [⚡ Aile] ou [🚂 Remonter] pour doubler le peloton !";
+    }
     for (int i = 0; i < _peloton.length; i++) {
       final r = _peloton[i];
       final riderSlope = _activeRoute.getSlopeAtDistance(r.distanceMeters);

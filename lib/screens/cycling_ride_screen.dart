@@ -41,6 +41,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
   final int _demoWatts = 195;
   final double _demoCadence = 88.0;
   final double _demoSpeed = 32.5;
+  int _cameraModeIndex = 0; // 0 = Vue 3/4 Héroïque Illustration, 1 = Vue Peloton Immersion, 2 = Vue Hélico TV
 
   WorkoutIntensity _selectedWorkoutIntensity = WorkoutIntensity.all;
 
@@ -518,7 +519,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
                                         Column(
                                           children: [
                                             const Text("🟡 MAILLOT JAUNE", style: TextStyle(color: Colors.yellowAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                                            Text("${career.playerLiveRankOnRoad}e Général", style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900)),
+                                            Text("${career.playerLiveRankOnRoad}e / ${career.totalPelotonSize}", style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900)),
                                           ],
                                         ),
                                         Column(
@@ -929,7 +930,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
         backgroundColor: Colors.black,
         body: Stack(
         children: [
-          // ─── 1. MOTEUR 3D CARTOON WEBGL v2 (AVEC PELOTON IA, THÈMES, GARAGE & MULTIJOUEUR) ───
+          // ─── 1. MOTEUR 3D STUDIO WEBGL v3 (AVEC PELOTON 150 COUREURS, THÈMES, GARAGE & MULTIJOUEUR) ───
           Positioned.fill(
             child: Cycling3dView(
               watts: activeWatts,
@@ -942,6 +943,9 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
               jerseyHexColor: profileProv.selectedJersey.displayColor.toARGB32(),
               multiplayerRidersJson: mp.relativeRidersJsonFor3d,
               graphicsQualityKey: profileProv.graphicsQuality.jsKey,
+              playerRank150: career.playerLiveRankOnRoad,
+              lateralLane: career.positionTactic.targetLateralLane,
+              cameraMode: _cameraModeIndex,
             ),
           ),
 
@@ -1179,9 +1183,33 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
                             label: const Text("Strava", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
                             onPressed: () => _exportToStravaDialog(context, career),
                           ),
+                          const SizedBox(width: 5),
+
+                          // 8. Sélecteur de Caméra 3D Studio (Vue 3/4 Illustration / Peloton / Hélico)
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0369A1),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(Icons.videocam, size: 14, color: Colors.amberAccent),
+                            label: Text(
+                              _cameraModeIndex == 0
+                                  ? "Cam 3/4"
+                                  : (_cameraModeIndex == 1 ? "Cam Peloton" : "Cam Hélico"),
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _cameraModeIndex = (_cameraModeIndex + 1) % 3;
+                              });
+                            },
+                          ),
                           const SizedBox(width: 4),
 
-                          // 8. Mode Démo
+                          // 9. Mode Démo
                           IconButton(
                             visualDensity: VisualDensity.compact,
                             icon: Icon(
@@ -1322,9 +1350,9 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
-                              // Classement en direct & Maillots
+                              // Classement en direct & Maillots (sur 150 coureurs)
                               Text(
-                                "🟡 ${career.playerLiveRankOnRoad}e/13  •  🔴⚪ ${career.playerKomPoints}pts  •  🟢 ${career.playerSprintPoints}pts",
+                                "🟡 ${career.playerLiveRankOnRoad}e/${career.totalPelotonSize}  •  🔴⚪ ${career.playerKomPoints}pts  •  🟢 ${career.playerSprintPoints}pts",
                                 style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                               ),
                             ],
@@ -1352,7 +1380,7 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
             ),
           ),
 
-          // ─── 5. COCKPIT INFÉRIEUR : ORDRES RADIO ÉQUIPIERS & ZWIFT COG ──────
+          // ─── 5. COCKPIT INFÉRIEUR : PLACEMENT PELOTON 150, ORDRES RADIO & ZWIFT COG ──────
           Positioned(
             bottom: 0,
             left: 0,
@@ -1363,7 +1391,46 @@ class _CyclingRideScreenState extends State<CyclingRideScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Boutons Tactiques Radio Équipiers & Ride On ! Multijoueur (1-Clic)
+                    // Ligne 1 : Placement Stratégique dans le Peloton de 150 Cyclistes (Cœur / Top 25 / Aile)
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: PelotonPositionTactic.values.map((tactic) {
+                          final isSelected = career.positionTactic == tactic;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            child: InkWell(
+                              onTap: () => career.setPositionTactic(tactic),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? const Color(0xFF0EA5E9)
+                                      : Colors.black.withValues(alpha: 0.80),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isSelected ? Colors.amberAccent : Colors.white24,
+                                    width: isSelected ? 1.5 : 1.0,
+                                  ),
+                                ),
+                                child: Text(
+                                  tactic.label,
+                                  style: TextStyle(
+                                    color: isSelected ? Colors.white : Colors.white70,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+
+                    const SizedBox(height: 5),
+
+                    // Ligne 2 : Boutons Tactiques Radio Équipiers & Ride On ! Multijoueur (1-Clic)
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(

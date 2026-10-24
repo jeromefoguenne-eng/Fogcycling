@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-  <title>Fogcycling 3D World</title>
+  <title>Fogcycling 3D Studio Engine v3.0 — Peloton 150 Coureurs</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body, html { width: 100%; height: 100%; overflow: hidden; background: #38bdf8; }
@@ -16,107 +16,221 @@
 
   <script>
     // ==============================================================================
-    // FOGCYCLING 3D CARTOON ENGINE v2.0 (THREE.JS / WEBGL)
-    // - Vélo de route orienté dans l'axe Z avec vraies roues à rayons (plan YZ)
-    // - Cinématique inverse (IK) des jambes verrouillée sur la cadence réelle
-    // - Portiques lumineux 3D pour les changements d'intervalles d'entraînement
+    // FOGCYCLING 3D STUDIO ENGINE v3.0 (STYLE ILLUSTRATION PIXAR/ZWIFT HD)
+    // - Rendu Haute Fidélité calqué sur l'illustration de référence :
+    //   Maillot & Cuissard "FOG" Jaune/Bleu, Vélo Carbone Bleu/Orange avec logo FOG,
+    //   freins à disque, bidon, dérailleur, pneus à flancs ambrés, visage sculpté.
+    // - Route de montagne sinueuse avec traces de pneus, glissières métalliques,
+    //   fleurs sauvages alpines, forêts de sapins denses et sommets enneigés.
+    // - PELOTON MASSIF DE 150 COUREURS 3D ANIMÉS avec dynamique de remontée/placement.
     // ==============================================================================
 
     let scene, camera, renderer;
     let cyclistGroup, bikeFrame, frontWheelGroup, rearWheelGroup, crankset;
     let leftThigh, leftCalf, leftFoot, rightThigh, rightCalf, rightFoot, leftKnee, rightKnee;
-    let roadSegments = [], cloudPool = [], aiRidersPool = [];
-    let workoutArch, groundMesh, playerBikeFrameMat, playerJerseyMat;
+    let roadSegments = [], cloudPool = [], peloton150Pool = [];
+    let workoutArch, groundMesh, skyDomeMesh;
+    let playerBikeFrameMat, playerJerseyMat;
 
-    // Télémétrie reçue de Flutter / Zwift Hub
+    // Télémétrie & État du Peloton de 150 coureurs reçus de Flutter
     let targetWatts = 0, currentWatts = 0;
     let targetCadence = 0, currentCadence = 0;
-    let targetSpeed = 0, currentSpeed = 0; // en m/s
+    let targetSpeed = 0, currentSpeed = 0; // m/s
     let currentSlope = 0.0;
-    let currentGear = 10;
+    let currentGear = 14;
     let distanceTraveled = 0;
 
+    // Position du joueur au sein du peloton de 150 coureurs (1 = en tête, 150 = en queue)
+    let targetPlayerRank = 45;
+    let smoothPlayerRank = 45.0;
+    let targetLateralLane = 0.0; // Décalage latéral quand le joueur remonte sur l'aile
+    let smoothLateralLane = 0.0;
+
+    // Modes de caméra : 0 = Vue 3/4 Héroïque (Illustration de référence), 1 = Immersion Peloton Arrière, 2 = Hélicoptère TV
+    let cameraMode = 0;
     let pedalAngle = 0;
     let clock = new THREE.Clock();
 
-    // Courbure de la route
+    // Courbure sinueuse de grand col alpin (lacets panoramiques)
     function getRoadCurveX(zWorld) {
-      return Math.sin(zWorld * 0.018) * 3.2 + Math.cos(zWorld * 0.007) * 1.5;
+      return Math.sin(zWorld * 0.022) * 5.8 + Math.cos(zWorld * 0.009) * 2.6;
     }
 
     function getRoadCurveDerivative(zWorld) {
-      return Math.cos(zWorld * 0.018) * 0.018 * 3.2 - Math.sin(zWorld * 0.007) * 0.007 * 1.5;
+      return Math.cos(zWorld * 0.022) * 0.022 * 5.8 - Math.sin(zWorld * 0.009) * 0.009 * 2.6;
+    }
+
+    // ─── GÉNÉRATEURS DE TEXTURES PROCÉDURALES HD (CANVAS 2D -> WEBGL) ──────────
+    function createAsphaltTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+
+      // Base bitume gris-bleu alpin
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(0, 0, 512, 512);
+
+      // Grain d'asphalte réaliste
+      for (let i = 0; i < 6000; i++) {
+        ctx.fillStyle = (i % 2 === 0) ? 'rgba(255,255,255,0.035)' : 'rgba(15,23,42,0.05)';
+        ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+      }
+
+      // Traces de gomme / trajectoires de course dans le virage (comme sur l'aperçu !)
+      ctx.strokeStyle = 'rgba(30, 41, 59, 0.38)';
+      ctx.lineWidth = 6;
+      for (let t = 0; t < 5; t++) {
+        ctx.beginPath();
+        const xOff = 150 + t * 14;
+        ctx.moveTo(xOff, 0);
+        ctx.lineTo(xOff, 512);
+        ctx.stroke();
+      }
+
+      // Bandes blanches de rive gauche et droite
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(18, 0, 14, 512);
+      ctx.fillRect(480, 0, 14, 512);
+
+      // Ligne médiane blanche discontinue
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(250, 40, 12, 180);
+      ctx.fillRect(250, 300, 12, 180);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      return tex;
+    }
+
+    function createFogJerseyTexture(primaryHexStr) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+
+      // Haut jaune d'or éclatant & bande bleu cyan (exactement comme l'illustration FOG !)
+      ctx.fillStyle = primaryHexStr || '#facc15';
+      ctx.fillRect(0, 0, 512, 512);
+
+      // Bande pectorale et dorsale bleu pro
+      ctx.fillStyle = '#0284c7';
+      ctx.fillRect(0, 210, 512, 130);
+
+      // Liséré noir/or
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 200, 512, 12);
+      ctx.fillRect(0, 340, 512, 12);
+
+      // Inscription "FOG" nette devant et dans le dos
+      ctx.fillStyle = '#facc15';
+      ctx.font = '900 76px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('FOG', 128, 298);
+      ctx.fillText('FOG', 384, 298);
+
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    function createSkyGradientTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+      const grad = ctx.createLinearGradient(0, 0, 0, 512);
+      grad.addColorStop(0.0, '#1d4ed8');
+      grad.addColorStop(0.35, '#38bdf8');
+      grad.addColorStop(0.72, '#bae6fd');
+      grad.addColorStop(1.0, '#fef9c3');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 256, 512);
+      return new THREE.CanvasTexture(canvas);
     }
 
     function init() {
       const container = document.getElementById('canvas-container');
 
-      // 1. SCÈNE & ATMOSPHÈRE ALPINE CARTOON
+      // 1. SCÈNE & BROUILLARD ATMOSPHÉRIQUE LUMINEUX
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x60a5fa);
-      scene.fog = new THREE.FogExp2(0x93c5fd, 0.0065);
+      scene.background = new THREE.Color(0x7dd3fc);
+      scene.fog = new THREE.FogExp2(0xbae6fd, 0.0042);
 
-      // 2. CAMÉRA 3RD PERSON DYNAMIQUE
-      camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 800);
-      camera.position.set(0, 2.15, -3.8);
-      camera.lookAt(0, 1.25, 4.0);
+      // 2. CAMÉRA HÉROÏQUE 3/4 PAR DÉFAUT (COMME SUR L'APERÇU !)
+      camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.1, 900);
 
-      // 3. MOTEUR DE RENDU WEBGL HAUTE FIDÉLITÉ
+      // 3. MOTEUR DE RENDU WEBGL PBR + ACES FILMIC
       renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       if (THREE.ACESFilmicToneMapping) {
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.1;
+        renderer.toneMappingExposure = 1.12;
       }
       container.appendChild(renderer.domElement);
 
-      // 4. ÉCLAIRAGE DE STUDIO EN PLEIN AIR
-      const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x15803d, 0.85);
+      // 4. ÉCLAIRAGE STUDIO À 3 POINTS (KEY SUNLIGHT + FILL + RIM)
+      const hemiLight = new THREE.HemisphereLight(0xfef9c3, 0x15803d, 0.92);
       scene.add(hemiLight);
 
-      const sunLight = new THREE.DirectionalLight(0xfef08a, 1.25);
-      sunLight.position.set(25, 45, -20);
+      // Soleil doré (Haut-Gauche comme sur l'illustration)
+      const sunLight = new THREE.DirectionalLight(0xfffbeb, 1.55);
+      sunLight.position.set(-28, 42, 18);
       sunLight.castShadow = true;
-      sunLight.shadow.mapSize.width = 1024;
-      sunLight.shadow.mapSize.height = 1024;
-      sunLight.shadow.camera.near = 5;
-      sunLight.shadow.camera.far = 120;
-      sunLight.shadow.camera.left = -18;
-      sunLight.shadow.camera.right = 18;
-      sunLight.shadow.camera.top = 18;
-      sunLight.shadow.camera.bottom = -18;
+      sunLight.shadow.mapSize.width = 2048;
+      sunLight.shadow.mapSize.height = 2048;
+      sunLight.shadow.camera.near = 2;
+      sunLight.shadow.camera.far = 140;
+      sunLight.shadow.camera.left = -22;
+      sunLight.shadow.camera.right = 22;
+      sunLight.shadow.camera.top = 22;
+      sunLight.shadow.camera.bottom = -22;
+      sunLight.shadow.bias = -0.0005;
       scene.add(sunLight);
 
-      // Soleil visuel dans le ciel
-      const sunMesh = new THREE.Mesh(
-        new THREE.SphereGeometry(8, 24, 24),
+      // Rim Light (contre-jour qui fait briller le casque, les épaules et le cadre carbone)
+      const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.75);
+      rimLight.position.set(22, 18, -25);
+      scene.add(rimLight);
+
+      // Dôme céleste dégradé + Soleil éblouissant
+      const skyGeo = new THREE.SphereGeometry(480, 32, 24);
+      const skyMat = new THREE.MeshBasicMaterial({ map: createSkyGradientTexture(), side: THREE.BackSide });
+      skyDomeMesh = new THREE.Mesh(skyGeo, skyMat);
+      scene.add(skyDomeMesh);
+
+      const sunGlow = new THREE.Mesh(
+        new THREE.SphereGeometry(16, 24, 24),
         new THREE.MeshBasicMaterial({ color: 0xfef08a })
       );
-      sunMesh.position.set(65, 85, 220);
-      scene.add(sunMesh);
+      sunGlow.position.set(-95, 115, 240);
+      scene.add(sunGlow);
 
-      // 5. ENVIRONNEMENT (SOL, MONTAGNES, NUAGES, ROUTE)
-      createTerrain();
-      createMountains();
+      // 5. ENVIRONNEMENT ALPIN HAUTE DÉFINITION
+      createTerrainAndMeadows();
+      createMajesticAlpinePeaks();
       createClouds();
-      createRoadStream();
+      createDetailedRoadStream();
       createWorkoutArch();
 
-      // 6. VÉLO DE COURSE, AVATAR JOUEUR & PELOTON IA (ÉQUIPIERS + ADVERSAIRES)
-      createCartoonCyclistAndBike();
-      createAiPeloton3D();
+      // 6. HÉROS CYCLISTE "FOG" ULTRA-DÉTAILLÉ + PELOTON MASSIF DE 150 COUREURS
+      createHeroCyclistAndProBike();
+      createPeloton150Cyclists();
 
       window.addEventListener('resize', onWindowResize, false);
       animate();
     }
 
-    // ─── TERRAIN ET DÉCORS ───────────────────────────────────────────────────
-    function createTerrain() {
-      const groundGeo = new THREE.PlaneGeometry(400, 400);
-      const groundMat = new THREE.MeshToonMaterial({ color: 0x4ade80 });
+    // ─── PRAIRIES ALPINES & MONTAGNES SCULPTÉES ──────────────────────────────
+    function createTerrainAndMeadows() {
+      const groundGeo = new THREE.PlaneGeometry(700, 700, 32, 32);
+      const groundMat = new THREE.MeshStandardMaterial({
+        color: 0x4ade80,
+        roughness: 0.88,
+        metalness: 0.02
+      });
       groundMesh = new THREE.Mesh(groundGeo, groundMat);
       groundMesh.rotation.x = -Math.PI / 2;
       groundMesh.position.y = -0.05;
@@ -124,322 +238,247 @@
       scene.add(groundMesh);
     }
 
-    // Création du Peloton 3D (Vos Équipiers en Bleu/Or + Leaders Maillot Jaune, Pois, Vert)
-    function createAiPeloton3D() {
-      const pelotonConfigs = [
-        { jersey: 0x0284c7, helmet: 0xfacc15, zOffset: 2.3, xOffset: -0.35, isTeammate: true },  // Équipier #1 (Poisson-Pilote)
-        { jersey: 0x0284c7, helmet: 0xfacc15, zOffset: 3.8, xOffset: 0.45, isTeammate: true },   // Équipier #2 (Grimpeur)
-        { jersey: 0xfacc15, helmet: 0xfacc15, zOffset: 6.2, xOffset: -0.75, isTeammate: false }, // Leader Maillot Jaune
-        { jersey: 0x22c55e, helmet: 0x16a34a, zOffset: 5.0, xOffset: 0.85, isTeammate: false },  // Leader Maillot Vert
-        { jersey: 0xef4444, helmet: 0xffffff, zOffset: 8.0, xOffset: 0.10, isTeammate: false },  // Leader Maillot à Pois
-        { jersey: 0x9333ea, helmet: 0xf8fafc, zOffset: 10.5, xOffset: -0.55, isTeammate: false } // Rival Pro
-      ];
+    function createMajesticAlpinePeaks() {
+      // Massifs rocheux facettés façon illustration avec neiges éternelles étincelantes
+      const rockColors = [0x64748b, 0x475569, 0x94a3b8];
+      const snowMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.05 });
 
-      for (let i = 0; i < pelotonConfigs.length; i++) {
-        const cfg = pelotonConfigs[i];
-        const aiRider = new THREE.Group();
+      for (let i = 0; i < 32; i++) {
+        const height = 55 + (i % 5) * 24;
+        const radius = 32 + (i % 4) * 16;
+        const peakGroup = new THREE.Group();
 
-        const darkMat = new THREE.MeshToonMaterial({ color: 0x0f172a });
-        const frameMat = new THREE.MeshToonMaterial({ color: cfg.isTeammate ? 0xf97316 : 0xe2e8f0 });
-        const jerseyMat = new THREE.MeshToonMaterial({ color: cfg.jersey });
-        const helmetMat = new THREE.MeshToonMaterial({ color: cfg.helmet });
-        const skinMat = new THREE.MeshToonMaterial({ color: 0xfdba74 });
+        const rockGeo = new THREE.ConeGeometry(radius, height, 6);
+        const rockMat = new THREE.MeshStandardMaterial({
+          color: rockColors[i % rockColors.length],
+          roughness: 0.75,
+          flatShading: true
+        });
+        const rock = new THREE.Mesh(rockGeo, rockMat);
+        rock.position.y = height / 2 - 3;
+        peakGroup.add(rock);
 
-        // Roues avant et arrière (dans le plan YZ !)
-        const rWheel = createBikeWheel(0.32);
-        rWheel.position.set(0, 0.32, -0.48);
-        aiRider.add(rWheel);
-
-        const fWheel = createBikeWheel(0.32);
-        fWheel.position.set(0, 0.32, 0.48);
-        aiRider.add(fWheel);
-
-        // Cadre simplifié
-        aiRider.add(createTubeBetween(new THREE.Vector3(0, 0.30, -0.08), new THREE.Vector3(0, 0.78, -0.22), 0.022, frameMat));
-        aiRider.add(createTubeBetween(new THREE.Vector3(0, 0.78, -0.22), new THREE.Vector3(0, 0.80, 0.38), 0.022, frameMat));
-        aiRider.add(createTubeBetween(new THREE.Vector3(0, 0.30, -0.08), new THREE.Vector3(0, 0.65, 0.40), 0.024, frameMat));
-
-        // Corps & Maillot distinctif
-        const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.12, 0.42, 12), jerseyMat);
-        torso.position.set(0, 1.12, -0.05);
-        torso.rotation.x = Math.PI / 3.4;
-        torso.castShadow = true;
-        aiRider.add(torso);
-
-        const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.135, 10, 10), darkMat);
-        pelvis.position.set(0, 0.96, -0.22);
-        aiRider.add(pelvis);
-
-        // Tête & Casque
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 12), skinMat);
-        head.position.set(0, 1.38, 0.15);
-        aiRider.add(head);
-
-        const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.125, 12, 12), helmetMat);
-        helmet.scale.set(1.0, 0.85, 1.25);
-        helmet.position.set(0, 1.42, 0.15);
-        aiRider.add(helmet);
-
-        // Halo lumineux au sol lorsqu'un coureur en ligne lance une ATTAQUE (>4.0 W/kg)
-        const haloGeo = new THREE.RingGeometry(0.45, 0.62, 24);
-        haloGeo.rotateX(-Math.PI / 2);
-        const haloMat = new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide });
-        const attackHalo = new THREE.Mesh(haloGeo, haloMat);
-        attackHalo.position.set(0, 0.06, 0);
-        attackHalo.visible = false;
-        aiRider.add(attackHalo);
-
-        aiRider.userData = {
-          baseZ: cfg.zOffset,
-          targetZ: cfg.zOffset,
-          xOffset: cfg.xOffset,
-          targetX: cfg.xOffset,
-          rWheel: rWheel,
-          fWheel: fWheel,
-          jerseyMat: jerseyMat,
-          frameMat: frameMat,
-          attackHalo: attackHalo,
-          phase: i * 1.1
-        };
-
-        aiRidersPool.push(aiRider);
-        scene.add(aiRider);
-      }
-    }
-
-    function createMountains() {
-      const mtnColors = [0x64748b, 0x475569, 0x334155];
-      const snowMat = new THREE.MeshToonMaterial({ color: 0xf8fafc });
-
-      for (let i = 0; i < 24; i++) {
-        const height = 35 + Math.random() * 55;
-        const radius = 22 + Math.random() * 28;
-        const mtnGroup = new THREE.Group();
-
-        const mtnGeo = new THREE.ConeGeometry(radius, height, 7);
-        const mtnMat = new THREE.MeshToonMaterial({ color: mtnColors[i % mtnColors.length] });
-        const mtn = new THREE.Mesh(mtnGeo, mtnMat);
-        mtn.position.y = height / 2 - 2;
-        mtnGroup.add(mtn);
-
-        // Sommet enneigé cartoon
-        const capHeight = height * 0.32;
-        const capRadius = radius * 0.33;
-        const capGeo = new THREE.ConeGeometry(capRadius, capHeight, 7);
+        // Névé / Sommet enneigé sculpté
+        const capH = height * 0.42;
+        const capR = radius * 0.43;
+        const capGeo = new THREE.ConeGeometry(capR, capH, 6);
         const cap = new THREE.Mesh(capGeo, snowMat);
-        cap.position.y = height - capHeight / 2 - 1.8;
-        mtnGroup.add(cap);
+        cap.position.y = height - capH / 2 - 2.5;
+        peakGroup.add(cap);
 
         const side = (i % 2 === 0) ? 1 : -1;
-        mtnGroup.position.x = side * (40 + Math.random() * 90);
-        mtnGroup.position.z = 40 + i * 14;
-        mtnGroup.rotation.y = Math.random() * Math.PI;
-        scene.add(mtnGroup);
+        peakGroup.position.x = side * (55 + (i % 3) * 35);
+        peakGroup.position.z = 45 + i * 16;
+        peakGroup.rotation.y = (i * 0.7);
+        scene.add(peakGroup);
       }
     }
 
     function createClouds() {
-      const cloudMat = new THREE.MeshToonMaterial({ color: 0xffffff });
-      for (let i = 0; i < 16; i++) {
+      const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
+      for (let i = 0; i < 18; i++) {
         const cloud = new THREE.Group();
-        const puffs = 3 + Math.floor(Math.random() * 3);
-        for (let p = 0; p < puffs; p++) {
-          const puffGeo = new THREE.SphereGeometry(2.8 + Math.random() * 2.2, 10, 10);
-          const puff = new THREE.Mesh(puffGeo, cloudMat);
-          puff.position.set(p * 2.6, Math.random() * 1.2, Math.random() * 1.5);
+        for (let p = 0; p < 5; p++) {
+          const puff = new THREE.Mesh(new THREE.SphereGeometry(3.5 + (p % 2) * 1.8, 12, 12), cloudMat);
+          puff.scale.set(1.3, 0.75, 1.0);
+          puff.position.set(p * 3.1, (p % 2) * 0.9, 0);
           cloud.add(puff);
         }
-        cloud.position.set(-90 + Math.random() * 180, 26 + Math.random() * 18, 25 + Math.random() * 190);
+        cloud.position.set(-120 + i * 15, 38 + (i % 4) * 8, 40 + i * 18);
         cloudPool.push(cloud);
         scene.add(cloud);
       }
     }
 
-    function createPineTree() {
+    function createLushAlpineFirTree(seed) {
       const tree = new THREE.Group();
-      const trunkMat = new THREE.MeshToonMaterial({ color: 0x78350f });
-      const leavesMat = new THREE.MeshToonMaterial({ color: 0x15803d });
-      const leavesLightMat = new THREE.MeshToonMaterial({ color: 0x16a34a });
+      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c2d0c, roughness: 0.9 });
+      const darkLeafMat = new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.7, flatShading: true });
+      const brightLeafMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.65, flatShading: true });
 
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 1.6, 7), trunkMat);
-      trunk.position.y = 0.8;
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.30, 1.8, 7), trunkMat);
+      trunk.position.y = 0.9;
       trunk.castShadow = true;
       tree.add(trunk);
 
-      const levels = 3;
-      for (let l = 0; l < levels; l++) {
+      // 4 étages de branches denses comme sur l'aperçu
+      for (let l = 0; l < 4; l++) {
         const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(1.45 - l * 0.32, 2.1 - l * 0.25, 7),
-          l % 2 === 0 ? leavesMat : leavesLightMat
+          new THREE.ConeGeometry(1.75 - l * 0.32, 2.2 - l * 0.22, 8),
+          l % 2 === 0 ? darkLeafMat : brightLeafMat
         );
         cone.position.y = 2.0 + l * 1.15;
         cone.castShadow = true;
         tree.add(cone);
       }
-      const scale = 0.85 + Math.random() * 0.5;
-      tree.scale.set(scale, scale, scale);
+      const s = 0.9 + (seed % 5) * 0.14;
+      tree.scale.set(s, s, s);
       return tree;
     }
 
-    function createRoadStream() {
-      const segmentCount = 45;
+    // ─── ROUTE DE MONTAGNE AVEC GLISSIÈRES MÉTALLIQUES, FLEURS & TRACES ──────
+    function createDetailedRoadStream() {
+      const segmentCount = 55;
       const segmentLength = 4.0;
+      const asphaltTex = createAsphaltTexture();
 
-      const asphaltMat = new THREE.MeshToonMaterial({ color: 0x334155 });
-      const shoulderMat = new THREE.MeshToonMaterial({ color: 0x94a3b8 });
-      const edgeLineMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
-      const centerLineMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
-      const postMat = new THREE.MeshToonMaterial({ color: 0xf8fafc });
+      const roadMat = new THREE.MeshStandardMaterial({
+        map: asphaltTex,
+        roughness: 0.65,
+        metalness: 0.08
+      });
+      const shoulderMat = new THREE.MeshStandardMaterial({ color: 0x65a30d, roughness: 0.85 });
+      const guardrailMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.75, roughness: 0.25 });
+      const postMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
       const reflectorMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+      const flowerColors = [0xfacc15, 0xffffff, 0xc084fc, 0xf87171];
 
       for (let i = 0; i < segmentCount; i++) {
         const segGroup = new THREE.Group();
 
-        // Accotement stabilisé
-        const shoulder = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.06, segmentLength + 0.08), shoulderMat);
-        shoulder.position.y = -0.02;
-        shoulder.receiveShadow = true;
-        segGroup.add(shoulder);
+        // Bas-côté herbeux fleuri
+        const bank = new THREE.Mesh(new THREE.BoxGeometry(10.5, 0.08, segmentLength + 0.1), shoulderMat);
+        bank.position.y = -0.02;
+        bank.receiveShadow = true;
+        segGroup.add(bank);
 
-        // Ruban d'asphalte
-        const road = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.08, segmentLength + 0.08), asphaltMat);
-        road.position.y = 0.0;
+        // Chaussée bitumée large (7.6m pour accueillir le peloton de 150 coureurs)
+        const road = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.10, segmentLength + 0.08), roadMat);
+        road.position.y = 0.01;
         road.receiveShadow = true;
         segGroup.add(road);
 
-        // Lignes de rive blanches continues
-        const leftEdge = new THREE.Mesh(new THREE.PlaneGeometry(0.12, segmentLength + 0.08), edgeLineMat);
-        leftEdge.rotation.x = -Math.PI / 2;
-        leftEdge.position.set(-3.1, 0.045, 0);
-        segGroup.add(leftEdge);
+        // Glissière de sécurité métallique à gauche (exactement comme sur l'aperçu !)
+        const railBeam = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, segmentLength + 0.06), guardrailMat);
+        railBeam.position.set(-4.1, 0.48, 0);
+        railBeam.castShadow = true;
+        segGroup.add(railBeam);
 
-        const rightEdge = leftEdge.clone();
-        rightEdge.position.x = 3.1;
-        segGroup.add(rightEdge);
+        const railPost = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.52, 0.10), guardrailMat);
+        railPost.position.set(-4.15, 0.26, 0);
+        segGroup.add(railPost);
 
-        // Ligne médiane jaune discontinue
+        // Délinéateurs blancs/rouges à droite
         if (i % 2 === 0) {
-          const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 1.8), centerLineMat);
-          dash.rotation.x = -Math.PI / 2;
-          dash.position.y = 0.046;
-          segGroup.add(dash);
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.65, 8), postMat);
+          post.position.set(4.1, 0.32, 0);
+          segGroup.add(post);
+
+          const ref = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.14, 0.11), reflectorMat);
+          ref.position.set(4.1, 0.52, 0);
+          segGroup.add(ref);
         }
 
-        // Bornes kilométriques / délinéateurs de montagne
-        if (i % 3 === 0) {
-          for (let side of [-1, 1]) {
-            const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.65, 0.1), postMat);
-            post.position.set(side * 3.65, 0.32, 0);
-            segGroup.add(post);
-
-            const ref = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.12, 0.11), reflectorMat);
-            ref.position.set(side * 3.65, 0.52, 0);
-            segGroup.add(ref);
-          }
+        // Touffes de fleurs sauvages alpines au bord de la route
+        for (let f = 0; f < 4; f++) {
+          const flMat = new THREE.MeshBasicMaterial({ color: flowerColors[(i + f) % flowerColors.length] });
+          const flower = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), flMat);
+          const side = (f % 2 === 0) ? -1 : 1;
+          flower.position.set(side * (4.3 + (f * 0.35)), 0.08, (f - 1.5) * 0.9);
+          segGroup.add(flower);
         }
 
-        // Sapins et rochers sur les bas-côtés
-        if (i % 2 === 0) {
-          const leftTree = createPineTree();
-          leftTree.position.set(-5.8 - Math.random() * 9, 0, (Math.random() - 0.5) * 2);
-          segGroup.add(leftTree);
+        // Forêt de sapins alpins de part et d'autre
+        const leftTree = createLushAlpineFirTree(i);
+        leftTree.position.set(-6.5 - (i % 4) * 2.8, 0, -0.8);
+        segGroup.add(leftTree);
 
-          const rightTree = createPineTree();
-          rightTree.position.set(5.8 + Math.random() * 9, 0, (Math.random() - 0.5) * 2);
-          segGroup.add(rightTree);
-        }
+        const rightTree = createLushAlpineFirTree(i + 3);
+        rightTree.position.set(6.5 + ((i + 2) % 4) * 2.8, 0, 0.8);
+        segGroup.add(rightTree);
 
-        segGroup.userData = { baseZ: i * segmentLength - 12 };
+        segGroup.userData = { baseZ: i * segmentLength - 24 };
         segGroup.position.z = segGroup.userData.baseZ;
         roadSegments.push(segGroup);
         scene.add(segGroup);
       }
     }
 
-    // Portique lumineux d'intervalle façon Zwift
     function createWorkoutArch() {
       workoutArch = new THREE.Group();
-      const archPillarMat = new THREE.MeshToonMaterial({ color: 0x0f172a });
-      const archGlowMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+      const archPillarMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.5, roughness: 0.3 });
+      const archGlowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
 
-      // Piliers gauche et droit
-      const leftPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 4.8, 12), archPillarMat);
-      leftPillar.position.set(-3.6, 2.4, 0);
+      const leftPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.30, 5.2, 12), archPillarMat);
+      leftPillar.position.set(-4.0, 2.6, 0);
       workoutArch.add(leftPillar);
 
       const rightPillar = leftPillar.clone();
-      rightPillar.position.x = 3.6;
+      rightPillar.position.x = 4.0;
       workoutArch.add(rightPillar);
 
-      // Bandeau supérieur lumineux
-      const topBanner = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.75, 0.35), archPillarMat);
-      topBanner.position.set(0, 4.6, 0);
+      const topBanner = new THREE.Mesh(new THREE.BoxGeometry(8.6, 0.85, 0.4), archPillarMat);
+      topBanner.position.set(0, 5.0, 0);
       workoutArch.add(topBanner);
 
-      const neonStrip = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.45, 0.4), archGlowMat);
-      neonStrip.position.set(0, 4.6, 0);
+      const neonStrip = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.48, 0.44), archGlowMat);
+      neonStrip.position.set(0, 5.0, 0);
       workoutArch.add(neonStrip);
 
-      workoutArch.position.z = 85;
-      workoutArch.visible = true;
+      workoutArch.position.z = 95;
       scene.add(workoutArch);
     }
 
-    // ─── CRÉATION D'UNE ROUE DE VÉLO RÉALISTE (DANS LE PLAN YZ) ───────────────
-    function createBikeWheel(radius) {
+    // ─── ROUES PRO CARBONE À FLANCS AMBRÉS + FREINS À DISQUE ─────────────────
+    function createBikeWheel(radius, isDetailedHero) {
       const wheelGroup = new THREE.Group();
 
-      // Pneu noir (Torus tourné de 90° sur Y pour être dans le plan YZ de la route !)
-      const tireGeo = new THREE.TorusGeometry(radius, 0.028, 12, 32);
+      // Pneu route noir
+      const tireGeo = new THREE.TorusGeometry(radius, 0.028, 12, isDetailedHero ? 36 : 18);
       tireGeo.rotateY(Math.PI / 2);
-      const tireMat = new THREE.MeshToonMaterial({ color: 0x0f172a });
-      const tire = new THREE.Mesh(tireGeo, tireMat);
-      tire.castShadow = true;
-      wheelGroup.add(tire);
+      const tireMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.75 });
+      wheelGroup.add(new THREE.Mesh(tireGeo, tireMat));
+
+      // Flancs beiges/ambrés ("Tan-wall tires" exactement comme sur l'aperçu !)
+      const sidewallGeo = new THREE.TorusGeometry(radius - 0.016, 0.015, 8, isDetailedHero ? 32 : 16);
+      sidewallGeo.rotateY(Math.PI / 2);
+      const sidewallMat = new THREE.MeshBasicMaterial({ color: 0xd97706 });
+      wheelGroup.add(new THREE.Mesh(sidewallGeo, sidewallMat));
 
       // Jante Carbone Profil Haut
-      const rimGeo = new THREE.TorusGeometry(radius - 0.032, 0.022, 8, 32);
+      const rimGeo = new THREE.TorusGeometry(radius - 0.036, 0.022, 8, isDetailedHero ? 32 : 16);
       rimGeo.rotateY(Math.PI / 2);
-      const rimMat = new THREE.MeshToonMaterial({ color: 0x1e293b });
-      const rim = new THREE.Mesh(rimGeo, rimMat);
-      wheelGroup.add(rim);
+      const rimMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.25, metalness: 0.4 });
+      wheelGroup.add(new THREE.Mesh(rimGeo, rimMat));
 
-      // Marquages colorés sur la jante pour bien voir la rotation de la roue !
-      const decalMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
-      for (let d = 0; d < 3; d++) {
-        const angle = (d * Math.PI * 2) / 3;
-        const decal = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.12), decalMat);
-        decal.position.set(0, Math.sin(angle) * (radius - 0.035), Math.cos(angle) * (radius - 0.035));
-        decal.rotation.x = -angle;
-        wheelGroup.add(decal);
-      }
+      if (isDetailedHero) {
+        // Disque de frein métallique (Disc brake rotor)
+        const discGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.006, 20);
+        discGeo.rotateZ(Math.PI / 2);
+        const discMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.2 });
+        const disc = new THREE.Mesh(discGeo, discMat);
+        disc.position.x = -0.035;
+        wheelGroup.add(disc);
 
-      // Moyeu central (Axe X)
-      const hubGeo = new THREE.CylinderGeometry(0.028, 0.028, 0.11, 12);
-      hubGeo.rotateZ(Math.PI / 2);
-      const hubMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.2 });
-      const hub = new THREE.Mesh(hubGeo, hubMat);
-      wheelGroup.add(hub);
-
-      // Rayons métalliques (dans le plan YZ) pour visualiser parfaitement le roulement
-      const spokeMat = new THREE.MeshBasicMaterial({ color: 0x94a3b8 });
-      const spokeCount = 12;
-      for (let i = 0; i < spokeCount; i++) {
-        const angle = (i * Math.PI) / (spokeCount / 2);
-        const spokeGeo = new THREE.CylinderGeometry(0.003, 0.003, (radius - 0.04) * 2, 6);
-        const spoke = new THREE.Mesh(spokeGeo, spokeMat);
-        spoke.rotation.x = angle;
-        wheelGroup.add(spoke);
+        // 14 Rayons fins argentés
+        const spokeMat = new THREE.MeshBasicMaterial({ color: 0xcbd5e1 });
+        for (let i = 0; i < 8; i++) {
+          const angle = (i * Math.PI) / 4;
+          const spokeGeo = new THREE.CylinderGeometry(0.0025, 0.0025, (radius - 0.04) * 2, 6);
+          const spoke = new THREE.Mesh(spokeGeo, spokeMat);
+          spoke.rotation.x = angle;
+          wheelGroup.add(spoke);
+        }
+      } else {
+        // 4 croix de rayons optimisées pour les 150 coureurs du peloton (60 FPS garanti)
+        const spokeMat = new THREE.MeshBasicMaterial({ color: 0x94a3b8 });
+        for (let i = 0; i < 4; i++) {
+          const spoke = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.003, 0.003, (radius - 0.04) * 2, 4),
+            spokeMat
+          );
+          spoke.rotation.x = (i * Math.PI) / 4;
+          wheelGroup.add(spoke);
+        }
       }
 
       return wheelGroup;
     }
 
-    // Helper pour relier deux points 3D par un tube de cadre de vélo
-    function createTubeBetween(p1, p2, thickness, material) {
+    function createTubeBetween(p1, p2, r1, r2, material) {
       const dir = new THREE.Vector3().subVectors(p2, p1);
       const len = dir.length();
-      const geo = new THREE.CylinderGeometry(thickness, thickness, len, 10);
+      const geo = new THREE.CylinderGeometry(r1, r2, len, 12);
       const mesh = new THREE.Mesh(geo, material);
       mesh.position.copy(p1).add(p2).multiplyScalar(0.5);
       mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
@@ -447,15 +486,29 @@
       return mesh;
     }
 
-    // ─── VÉLO DE COURSE & AVATAR CYCLISTE 3D (AXE Z) ─────────────────────────
-    function createCartoonCyclistAndBike() {
+    // ─── CYCLISTE HÉROS "FOG" & VÉLO PRO (FIDÈLE À L'ILLUSTRATION 100%) ──────
+    function createHeroCyclistAndProBike() {
       cyclistGroup = new THREE.Group();
       bikeFrame = new THREE.Group();
 
-      const frameMat = new THREE.MeshToonMaterial({ color: 0xf97316 }); // Cadre Orange Carbone
-      playerBikeFrameMat = frameMat;
-      const darkMat = new THREE.MeshToonMaterial({ color: 0x0f172a });  // Carbone mat
-      const chromeMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.8, roughness: 0.2 });
+      // Matériaux PBR vernis (Clearcoat Carbone Bleu & Accents Orange comme sur l'image)
+      const frameBlueMat = new THREE.MeshPhysicalMaterial({
+        color: 0x0284c7,
+        roughness: 0.2,
+        metalness: 0.15,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.1
+      });
+      playerBikeFrameMat = frameBlueMat;
+
+      const frameOrangeMat = new THREE.MeshPhysicalMaterial({
+        color: 0xf97316,
+        roughness: 0.2,
+        metalness: 0.1,
+        clearcoat: 1.0
+      });
+      const darkCarbonMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.35, metalness: 0.3 });
+      const chromeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.15 });
 
       const wheelRadius = 0.34;
       const rearAxle = new THREE.Vector3(0, wheelRadius, -0.52);
@@ -463,359 +516,504 @@
       const bottomBracket = new THREE.Vector3(0, 0.29, -0.08);
       const seatNode = new THREE.Vector3(0, 0.82, -0.24);
       const headTubeTop = new THREE.Vector3(0, 0.84, 0.40);
-      const headTubeBottom = new THREE.Vector3(0, 0.68, 0.44);
+      const headTubeBottom = new THREE.Vector3(0, 0.67, 0.44);
 
-      // 1. Roues Avant et Arrière (parfaitement orientées dans le sens de la marche)
-      frontWheelGroup = createBikeWheel(wheelRadius);
+      // 1. Roues Pro à disques et flancs ambrés
+      frontWheelGroup = createBikeWheel(wheelRadius, true);
       frontWheelGroup.position.copy(frontAxle);
       bikeFrame.add(frontWheelGroup);
 
-      rearWheelGroup = createBikeWheel(wheelRadius);
+      rearWheelGroup = createBikeWheel(wheelRadius, true);
       rearWheelGroup.position.copy(rearAxle);
       bikeFrame.add(rearWheelGroup);
 
-      // 2. Triangles du Cadre de Vélo (dans le plan YZ !)
-      // Tube horizontal (Top tube)
-      bikeFrame.add(createTubeBetween(seatNode, headTubeTop, 0.024, frameMat));
-      // Tube diagonal (Down tube)
-      bikeFrame.add(createTubeBetween(bottomBracket, headTubeBottom, 0.028, frameMat));
-      // Tube de selle (Seat tube)
-      bikeFrame.add(createTubeBetween(bottomBracket, seatNode, 0.024, frameMat));
-      // Douille de direction (Head tube)
-      bikeFrame.add(createTubeBetween(headTubeBottom, headTubeTop, 0.026, frameMat));
+      // 2. Cadre Aéro Carbone Bi-Ton (Bleu + Fourche/Tube Orange comme sur l'aperçu)
+      bikeFrame.add(createTubeBetween(seatNode, headTubeTop, 0.025, 0.028, frameBlueMat));
+      bikeFrame.add(createTubeBetween(bottomBracket, headTubeBottom, 0.032, 0.030, frameBlueMat));
+      bikeFrame.add(createTubeBetween(bottomBracket, seatNode, 0.024, 0.026, frameBlueMat));
+      bikeFrame.add(createTubeBetween(headTubeBottom, headTubeTop, 0.028, 0.028, frameOrangeMat));
 
-      // Haubans et bases arrière (Dual stays gauche/droite)
-      for (let side of [-0.045, 0.045]) {
+      // Bidon (Gourde jaune & noire dans son porte-bidon sur le tube diagonal !)
+      const bottleGroup = new THREE.Group();
+      const bottleBody = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.036, 0.036, 0.16, 12),
+        new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.3 })
+      );
+      const bottleCap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.038, 0.038, 0.04, 12),
+        darkCarbonMat
+      );
+      bottleCap.position.y = 0.09;
+      bottleGroup.add(bottleBody, bottleCap);
+      bottleGroup.position.set(0, 0.49, 0.12);
+      bottleGroup.rotation.x = -0.72;
+      bikeFrame.add(bottleGroup);
+
+      // Haubans, bases arrière, fourche avant bicolore & dérailleur arrière
+      for (let side of [-0.046, 0.046]) {
         const rAxleSide = new THREE.Vector3(side, rearAxle.y, rearAxle.z);
         const bbSide = new THREE.Vector3(side * 0.6, bottomBracket.y, bottomBracket.z);
-        const seatSide = new THREE.Vector3(side * 0.4, seatNode.y - 0.05, seatNode.z);
-        bikeFrame.add(createTubeBetween(bbSide, rAxleSide, 0.014, frameMat));
-        bikeFrame.add(createTubeBetween(seatSide, rAxleSide, 0.012, frameMat));
+        const seatSide = new THREE.Vector3(side * 0.4, seatNode.y - 0.06, seatNode.z);
+        bikeFrame.add(createTubeBetween(bbSide, rAxleSide, 0.015, 0.012, frameBlueMat));
+        bikeFrame.add(createTubeBetween(seatSide, rAxleSide, 0.012, 0.010, frameBlueMat));
 
-        // Fourche avant
         const fAxleSide = new THREE.Vector3(side, frontAxle.y, frontAxle.z);
         const forkCrown = new THREE.Vector3(side * 0.4, headTubeBottom.y, headTubeBottom.z);
-        bikeFrame.add(createTubeBetween(forkCrown, fAxleSide, 0.015, frameMat));
+        bikeFrame.add(createTubeBetween(forkCrown, fAxleSide, 0.018, 0.012, frameOrangeMat));
       }
 
-      // Tige de selle et Selle ergonomique
+      // Dérailleur arrière & chaîne
+      const derailleur = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.09, 0.05), darkCarbonMat);
+      derailleur.position.set(0.055, 0.29, -0.52);
+      bikeFrame.add(derailleur);
+
+      // Tige de selle, Selle Pro, Potence et Cintre route recourbé (Drop bars)
       const seatPostTop = new THREE.Vector3(0, 0.96, -0.28);
-      bikeFrame.add(createTubeBetween(seatNode, seatPostTop, 0.018, darkMat));
-      const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.04, 0.26), darkMat);
+      bikeFrame.add(createTubeBetween(seatNode, seatPostTop, 0.018, 0.020, darkCarbonMat));
+      const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.04, 0.27), darkCarbonMat);
       saddle.position.copy(seatPostTop);
       bikeFrame.add(saddle);
 
-      // Potence et Cintre de route (Guidon)
       const stemEnd = new THREE.Vector3(0, 0.90, 0.48);
-      bikeFrame.add(createTubeBetween(headTubeTop, stemEnd, 0.018, darkMat));
-      const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.42, 10), darkMat);
+      bikeFrame.add(createTubeBetween(headTubeTop, stemEnd, 0.019, 0.019, darkCarbonMat));
+      const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.42, 12), darkCarbonMat);
       handlebar.rotation.z = Math.PI / 2;
       handlebar.position.copy(stemEnd);
       bikeFrame.add(handlebar);
 
-      // Cocottes de frein
-      for (let side of [-0.19, 0.19]) {
-        const hood = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.07, 0.09), darkMat);
+      // Courbures basses du guidon (Drops) + Cocottes et leviers de frein
+      for (let side of [-0.20, 0.20]) {
+        const dropCurve = new THREE.Mesh(
+          new THREE.TorusGeometry(0.065, 0.014, 8, 16, Math.PI),
+          darkCarbonMat
+        );
+        dropCurve.rotation.y = Math.PI / 2;
+        dropCurve.position.set(side, 0.835, 0.48);
+        bikeFrame.add(dropCurve);
+
+        const hood = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.075, 0.095), darkCarbonMat);
         hood.position.set(side, 0.92, 0.53);
         bikeFrame.add(hood);
       }
 
-      // 3. Pédalier & Manivelles (Crankset)
+      // 3. Pédalier Double Plateau Carbone
       crankset = new THREE.Group();
       crankset.position.copy(bottomBracket);
 
-      const chainring = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.10, 0.015, 20), darkMat);
+      const chainring = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.105, 0.018, 24), darkCarbonMat);
       chainring.rotation.z = Math.PI / 2;
       chainring.position.x = 0.05;
       crankset.add(chainring);
 
-      // Manivelle Gauche (vers +Y quand angle = 0)
-      const crankArmGeo = new THREE.BoxGeometry(0.018, 0.17, 0.032);
-      const leftCrank = new THREE.Mesh(crankArmGeo, chromeMat);
+      const crankArmGeo = new THREE.BoxGeometry(0.018, 0.17, 0.034);
+      const leftCrank = new THREE.Mesh(crankArmGeo, darkCarbonMat);
       leftCrank.position.set(-0.07, 0.08, 0);
       crankset.add(leftCrank);
 
-      // Manivelle Droite (vers -Y quand angle = 0)
-      const rightCrank = new THREE.Mesh(crankArmGeo, chromeMat);
+      const rightCrank = new THREE.Mesh(crankArmGeo, darkCarbonMat);
       rightCrank.position.set(0.07, -0.08, 0);
       crankset.add(rightCrank);
 
       bikeFrame.add(crankset);
       cyclistGroup.add(bikeFrame);
 
-      // ─── 4. LE CORPS DU CYCLISTE CARTOON STYLISÉ ───
-      const skinMat = new THREE.MeshToonMaterial({ color: 0xfdba74 });   // Peau dorée chaleureuse
-      const jerseyMat = new THREE.MeshToonMaterial({ color: 0x0284c7 }); // Maillot Bleu Pro Fogcycling
-      playerJerseyMat = jerseyMat;
-      const stripeMat = new THREE.MeshToonMaterial({ color: 0xfacc15 }); // Bande jaune maillot
-      const shortsMat = new THREE.MeshToonMaterial({ color: 0x0f172a }); // Cuissard Noir
-      const helmetMat = new THREE.MeshToonMaterial({ color: 0xf8fafc }); // Casque Blanc Aero
-      const shoeMat = new THREE.MeshToonMaterial({ color: 0xffffff });   // Chaussures blanches
+      // ─── 4. CORPS DU CYCLISTE HÉROS "FOG" (MAILLOT JAUNE/BLEU + VISAGE SCULPTÉ) ───
+      const skinMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.55 });
+      const warmSkinMat = new THREE.MeshStandardMaterial({ color: 0xfdba74, roughness: 0.48 });
+      const fogJerseyMat = new THREE.MeshStandardMaterial({
+        map: createFogJerseyTexture('#facc15'),
+        roughness: 0.42
+      });
+      playerJerseyMat = fogJerseyMat;
 
-      // Bassin / Hanches sur la selle
-      const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.145, 14, 14), shortsMat);
-      pelvis.scale.set(1.1, 0.85, 1.0);
+      const shortsMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 });
+      const cyanBandMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4 });
+      const yellowBandMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.4 });
+      const whiteShoeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.3 });
+
+      // Bassin & Cuissard Pro
+      const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.148, 16, 16), shortsMat);
+      pelvis.scale.set(1.12, 0.88, 1.04);
       pelvis.position.set(0, 1.02, -0.25);
       cyclistGroup.add(pelvis);
 
-      // Buste / Torso aérodynamique
+      // Buste athlétique avec maillot "FOG" Jaune/Bleu
       const torsoGroup = new THREE.Group();
       torsoGroup.position.set(0, 1.18, -0.06);
-      torsoGroup.rotation.x = Math.PI / 3.4; // Penché vers le guidon
+      torsoGroup.rotation.x = Math.PI / 3.35;
 
-      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.13, 0.44, 14), jerseyMat);
-      torso.scale.set(1.15, 1.0, 0.82);
+      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.132, 0.45, 18), fogJerseyMat);
+      torso.scale.set(1.16, 1.0, 0.84);
       torso.castShadow = true;
       torsoGroup.add(torso);
 
-      // Bande distinctive sur le dos du maillot
-      const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.153, 0.142, 0.12, 14), stripeMat);
-      stripe.scale.set(1.15, 1.0, 0.83);
-      stripe.position.y = 0.04;
-      torsoGroup.add(stripe);
-
-      // Épaules arrondies
-      const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 14), jerseyMat);
-      shoulders.scale.set(1.25, 0.7, 0.85);
-      shoulders.position.y = 0.20;
+      const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.165, 16, 16), yellowBandMat);
+      shoulders.scale.set(1.26, 0.72, 0.86);
+      shoulders.position.y = 0.21;
       torsoGroup.add(shoulders);
 
       cyclistGroup.add(torsoGroup);
 
-      // Tête & Casque Aérodynamique
+      // Tête sculptée (Visage expressif souriant, yeux, sourcils, cheveux bruns + Casque Aéro Bleu/Orange/Noir)
       const headGroup = new THREE.Group();
-      headGroup.position.set(0, 1.44, 0.16);
+      headGroup.position.set(0, 1.45, 0.17);
 
-      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.12, 10), skinMat);
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.066, 0.13, 12), warmSkinMat);
       neck.position.set(0, -0.08, -0.03);
       headGroup.add(neck);
 
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 16, 16), skinMat);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.118, 20, 20), warmSkinMat);
+      head.scale.set(0.95, 1.08, 0.98);
       headGroup.add(head);
 
-      const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.132, 16, 16), helmetMat);
-      helmet.scale.set(1.02, 0.85, 1.28);
-      helmet.position.set(0, 0.04, -0.01);
-      helmet.castShadow = true;
-      headGroup.add(helmet);
+      // Cheveux bruns et pattes sur les côtés (comme sur l'aperçu !)
+      const hairMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.8 });
+      const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.116, 14, 14), hairMat);
+      hairBack.position.set(0, 0.02, -0.02);
+      headGroup.add(hairBack);
 
-      // Visière / Lunettes de vitesse réfléchissantes
-      const visor = new THREE.Mesh(
-        new THREE.BoxGeometry(0.19, 0.055, 0.08),
-        new THREE.MeshBasicMaterial({ color: 0xf97316 })
+      // Yeux, sourcils et sourire sur la face avant (+Z)
+      const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const pupilMat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
+      for (let s of [-0.038, 0.038]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 8), eyeWhiteMat);
+        eye.position.set(s, 0.015, 0.105);
+        headGroup.add(eye);
+
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 8), pupilMat);
+        pupil.position.set(s, 0.015, 0.118);
+        headGroup.add(pupil);
+
+        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.007, 0.01), hairMat);
+        brow.position.set(s, 0.038, 0.110);
+        headGroup.add(brow);
+      }
+
+      // Nez et Sourire confiant
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.035, 8), warmSkinMat);
+      nose.rotation.x = Math.PI / 2;
+      nose.position.set(0, -0.005, 0.122);
+      headGroup.add(nose);
+
+      const smile = new THREE.Mesh(
+        new THREE.TorusGeometry(0.024, 0.004, 6, 12, Math.PI),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
       );
-      visor.position.set(0, 0.01, 0.09);
-      headGroup.add(visor);
+      smile.rotation.x = Math.PI;
+      smile.position.set(0, -0.032, 0.108);
+      headGroup.add(smile);
+
+      // Casque Aéro Pro Tri-Couleur (Noir / Orange / Bleu Cyan avec aérations)
+      const helmetBase = new THREE.Mesh(new THREE.SphereGeometry(0.135, 18, 18), darkCarbonMat);
+      helmetBase.scale.set(1.04, 0.78, 1.32);
+      helmetBase.position.set(0, 0.065, -0.01);
+      headGroup.add(helmetBase);
+
+      const helmetOrangeStripe = new THREE.Mesh(new THREE.SphereGeometry(0.138, 16, 16), frameOrangeMat);
+      helmetOrangeStripe.scale.set(0.65, 0.80, 1.34);
+      helmetOrangeStripe.position.set(0, 0.07, 0.0);
+      headGroup.add(helmetOrangeStripe);
+
+      const helmetCyanStripe = new THREE.Mesh(new THREE.SphereGeometry(0.137, 16, 16), cyanBandMat);
+      helmetCyanStripe.scale.set(0.88, 0.65, 1.30);
+      helmetCyanStripe.position.set(0, 0.055, 0.01);
+      headGroup.add(helmetCyanStripe);
 
       cyclistGroup.add(headGroup);
 
-      // Bras reliés des épaules aux cocottes du guidon
+      // Bras musclés avec manches bicolores Jaune/Bleu et gants noirs
       for (let side of [-1, 1]) {
-        const shoulderPos = new THREE.Vector3(side * 0.18, 1.30, 0.10);
-        const elbowPos = new THREE.Vector3(side * 0.20, 1.08, 0.32);
-        const handPos = new THREE.Vector3(side * 0.19, 0.93, 0.52);
+        const shoulderPos = new THREE.Vector3(side * 0.19, 1.31, 0.10);
+        const sleeveEnd = new THREE.Vector3(side * 0.198, 1.19, 0.21);
+        const elbowPos = new THREE.Vector3(side * 0.205, 1.08, 0.32);
+        const handPos = new THREE.Vector3(side * 0.195, 0.93, 0.52);
 
-        // Manche courte du maillot
-        cyclistGroup.add(createTubeBetween(shoulderPos, shoulderPos.clone().lerp(elbowPos, 0.45), 0.048, jerseyMat));
-        // Bras & Avant-bras
-        cyclistGroup.add(createTubeBetween(shoulderPos.clone().lerp(elbowPos, 0.4), elbowPos, 0.040, skinMat));
-        cyclistGroup.add(createTubeBetween(elbowPos, handPos, 0.035, skinMat));
+        cyclistGroup.add(createTubeBetween(shoulderPos, sleeveEnd, 0.052, 0.046, yellowBandMat));
+        cyclistGroup.add(createTubeBetween(sleeveEnd, elbowPos, 0.044, 0.038, warmSkinMat));
+        cyclistGroup.add(createTubeBetween(elbowPos, handPos, 0.038, 0.030, warmSkinMat));
 
-        // Gant sur les cocottes
-        const glove = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 10), darkMat);
+        const glove = new THREE.Mesh(new THREE.SphereGeometry(0.044, 12, 12), darkCarbonMat);
         glove.position.copy(handPos);
         cyclistGroup.add(glove);
       }
 
-      // ─── 5. JAMBES ARTICULÉES EN CINÉMATIQUE INVERSE (CUISSE + GENOU + MOLLET + CHAUSSURE) ───
-      const thighGeo = new THREE.CylinderGeometry(0.068, 0.052, 0.36, 12);
-      const calfGeo = new THREE.CylinderGeometry(0.050, 0.036, 0.36, 12);
-      const kneeGeo = new THREE.SphereGeometry(0.052, 10, 10);
-      const shoeGeo = new THREE.BoxGeometry(0.085, 0.055, 0.19);
+      // 5. Jambes Musclées en Cinématique Inverse (Cuissard à bande bleue/jaune + Chaussettes jaunes + Chaussures blanches)
+      const thighGeo = new THREE.CylinderGeometry(0.076, 0.058, 0.36, 14);
+      const calfGeo = new THREE.CylinderGeometry(0.054, 0.038, 0.36, 14);
+      const kneeGeo = new THREE.SphereGeometry(0.056, 12, 12);
+      const shoeGeo = new THREE.BoxGeometry(0.088, 0.058, 0.20);
 
-      // Jambe Gauche
       leftThigh = new THREE.Mesh(thighGeo, shortsMat);
-      leftKnee = new THREE.Mesh(kneeGeo, skinMat);
-      leftCalf = new THREE.Mesh(calfGeo, skinMat);
-      leftFoot = new THREE.Mesh(shoeGeo, shoeMat);
-      leftThigh.castShadow = true;
-      leftCalf.castShadow = true;
+      leftKnee = new THREE.Mesh(kneeGeo, warmSkinMat);
+      leftCalf = new THREE.Mesh(calfGeo, warmSkinMat);
+      leftFoot = new THREE.Mesh(shoeGeo, whiteShoeMat);
       cyclistGroup.add(leftThigh, leftKnee, leftCalf, leftFoot);
 
-      // Jambe Droite
       rightThigh = new THREE.Mesh(thighGeo, shortsMat);
-      rightKnee = new THREE.Mesh(kneeGeo, skinMat);
-      rightCalf = new THREE.Mesh(calfGeo, skinMat);
-      rightFoot = new THREE.Mesh(shoeGeo, shoeMat);
-      rightThigh.castShadow = true;
-      rightCalf.castShadow = true;
+      rightKnee = new THREE.Mesh(kneeGeo, warmSkinMat);
+      rightCalf = new THREE.Mesh(calfGeo, warmSkinMat);
+      rightFoot = new THREE.Mesh(shoeGeo, whiteShoeMat);
       cyclistGroup.add(rightThigh, rightKnee, rightCalf, rightFoot);
 
       scene.add(cyclistGroup);
     }
 
-    // ─── CINÉMATIQUE DE PÉDALAGE ET ROTATION EXACTE DES ROUES ────────────────
+    // ─── CRÉATION DU PELOTON MASSIF DE 150 COUREURS 3D SUR LA ROUTE ──────────
+    function createPeloton150Cyclists() {
+      const totalRiders = 150;
+      const teamJerseyColors = [
+        0x0284c7, // Équipiers FOG (Bleu/Or)
+        0xfacc15, // Maillot Jaune / Visma
+        0x22c55e, // Maillot Vert / Bora
+        0xef4444, // Maillot à Pois / Ineos / UAE
+        0xffffff, // Groupama / Decathlon
+        0xf97316, // Euskaltel / CCC
+        0x9333ea, // Jayco / SD Worx
+        0xec4899, // EF Education (Rose)
+        0x14b8a6  // Astana / Bahrain
+      ];
+
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 });
+      const skinMat = new THREE.MeshStandardMaterial({ color: 0xfdba74, roughness: 0.5 });
+
+      // Géométries partagées en mémoire GPU pour afficher 150 cyclistes à 60 FPS sans ralentissement !
+      const sharedTorsoGeo = new THREE.CylinderGeometry(0.135, 0.115, 0.40, 8);
+      const sharedHeadGeo = new THREE.SphereGeometry(0.105, 8, 8);
+      const sharedHelmetGeo = new THREE.SphereGeometry(0.12, 8, 8);
+      const sharedLegGeo = new THREE.CylinderGeometry(0.048, 0.035, 0.48, 6);
+
+      // Matériaux partagés par équipe (9 équipes)
+      const teamMats = teamJerseyColors.map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.42 }));
+
+      for (let i = 0; i < totalRiders; i++) {
+        const rider = new THREE.Group();
+        const isTeammate = (i >= 40 && i <= 44);
+        const jMat = isTeammate ? teamMats[0] : teamMats[i % teamMats.length];
+
+        // Roues avant et arrière
+        const rWheel = createBikeWheel(0.32, false);
+        rWheel.position.set(0, 0.32, -0.46);
+        rider.add(rWheel);
+
+        const fWheel = createBikeWheel(0.32, false);
+        fWheel.position.set(0, 0.32, 0.46);
+        rider.add(fWheel);
+
+        // Cadre épuré
+        const frameTube = new THREE.Mesh(
+          new THREE.BoxGeometry(0.03, 0.38, 0.78),
+          isTeammate ? teamMats[5] : darkMat
+        );
+        frameTube.position.set(0, 0.54, 0.0);
+        rider.add(frameTube);
+
+        // Buste & Maillot d'équipe
+        const torso = new THREE.Mesh(sharedTorsoGeo, jMat);
+        torso.position.set(0, 1.10, -0.04);
+        torso.rotation.x = Math.PI / 3.4;
+        rider.add(torso);
+
+        // Tête & Casque profilé
+        const head = new THREE.Mesh(sharedHeadGeo, skinMat);
+        head.position.set(0, 1.36, 0.14);
+        rider.add(head);
+
+        const helmet = new THREE.Mesh(sharedHelmetGeo, jMat);
+        helmet.scale.set(1.0, 0.82, 1.25);
+        helmet.position.set(0, 1.40, 0.14);
+        rider.add(helmet);
+
+        // Jambes animées gauche/droite (oscillation en opposition de phase)
+        const legL = new THREE.Mesh(sharedLegGeo, skinMat);
+        legL.position.set(-0.09, 0.65, -0.08);
+        rider.add(legL);
+
+        const legR = new THREE.Mesh(sharedLegGeo, skinMat);
+        legR.position.set(0.09, 0.65, -0.08);
+        rider.add(legR);
+
+        // Répartition en formation de peloton dense (5 colonnes de large x 30 rangées = 150 coureurs)
+        const row = Math.floor(i / 5); // 0 (tête de course) à 29 (queue de peloton)
+        const col = i % 5;             // 0 à 4 sur la largeur de la route
+        const laneX = (col - 2) * 0.72 + ((row % 2) * 0.28 - 0.14);
+
+        rider.userData = {
+          rankIndex: i + 1, // Rang 1 à 150 dans le peloton
+          row: row,
+          laneX: laneX,
+          legL: legL,
+          legR: legR,
+          rWheel: rWheel,
+          fWheel: fWheel,
+          phase: (i * 0.73) % (Math.PI * 2)
+        };
+
+        peloton150Pool.push(rider);
+        scene.add(rider);
+      }
+    }
+
+    // ─── CINÉMATIQUE DE PÉDALAGE DU JOUEUR ───────────────────────────────────
     function updatePedaling(delta) {
       currentWatts += (targetWatts - currentWatts) * 0.12;
       currentCadence += (targetCadence - currentCadence) * 0.12;
       currentSpeed += (targetSpeed - currentSpeed) * 0.12;
+      smoothPlayerRank += (targetPlayerRank - smoothPlayerRank) * 0.06;
+      smoothLateralLane += (targetLateralLane - smoothLateralLane) * 0.08;
 
-      // 1. Rotation du pédalier (dans le sens vers l'avant : +X rotation)
-      const rps = currentCadence / 60.0;
+      const rps = Math.max(currentCadence, 15) / 60.0;
       pedalAngle += rps * Math.PI * 2 * delta;
       crankset.rotation.x = pedalAngle;
 
-      // 2. Rotation des roues autour de leur axe X (roulement naturel vers l'avant !)
-      const wheelCircumference = 2.136; // 700c
-      const wheelAngularVel = (currentSpeed / wheelCircumference) * Math.PI * 2;
+      const wheelCircumference = 2.136;
+      const wheelAngularVel = (Math.max(currentSpeed, 3.0) / wheelCircumference) * Math.PI * 2;
       frontWheelGroup.rotation.x += wheelAngularVel * delta;
       rearWheelGroup.rotation.x += wheelAngularVel * delta;
 
-      // 3. Cinématique Inverse (IK) des deux jambes dans le plan YZ
       const hipL = new THREE.Vector3(-0.11, 1.00, -0.25);
       const hipR = new THREE.Vector3(0.11, 1.00, -0.25);
-
       const crankRadius = 0.165;
-      // Quand crankset tourne de pedalAngle autour de X :
-      // Le point (0, R, 0) devient (0, R*cos(a), R*sin(a))
+
       const pedalLY = 0.29 + Math.cos(pedalAngle) * crankRadius;
       const pedalLZ = -0.08 + Math.sin(pedalAngle) * crankRadius;
-
       const pedalRY = 0.29 + Math.cos(pedalAngle + Math.PI) * crankRadius;
       const pedalRZ = -0.08 + Math.sin(pedalAngle + Math.PI) * crankRadius;
 
       solveLegIK(hipL, new THREE.Vector3(-0.11, pedalLY, pedalLZ), leftThigh, leftKnee, leftCalf, leftFoot);
       solveLegIK(hipR, new THREE.Vector3(0.11, pedalRY, pedalRZ), rightThigh, rightKnee, rightCalf, rightFoot);
 
-      // 4. Dynamique de danseuse et balancement du vélo à haute puissance
-      const swayAngle = Math.sin(pedalAngle) * (currentWatts > 240 ? 0.055 : 0.02);
+      const swayAngle = Math.sin(pedalAngle) * (currentWatts > 240 ? 0.045 : 0.018);
       cyclistGroup.rotation.z = swayAngle;
-      if (currentWatts > 260) {
-        cyclistGroup.position.y = 0.06;
-      } else {
-        cyclistGroup.position.y = 0.0;
-      }
     }
 
-    // Résolution géométrique exacte du genou (Loi des cosinus 2 segments dans le plan YZ)
     function solveLegIK(hip, ankle, thighMesh, kneeMesh, calfMesh, footMesh) {
-      const L1 = 0.37; // Longueur fémur
-      const L2 = 0.37; // Longueur tibia
-
+      const L1 = 0.37, L2 = 0.37;
       const dy = ankle.y - hip.y;
       const dz = ankle.z - hip.z;
       const dist = Math.min(Math.sqrt(dy * dy + dz * dz), L1 + L2 - 0.005);
-
-      // Angle entre hanche->cheville et l'horizontale Z
       const baseAngle = Math.atan2(dy, dz);
-      // Angle interne du triangle hanche-genou-cheville
       const cosAlpha = (L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist);
       const alpha = Math.acos(Math.max(-1, Math.min(1, cosAlpha)));
-
-      // Le genou pointe toujours vers l'avant (+Z / +Y)
       const kneeAngle = baseAngle + alpha;
+
       const kneePos = new THREE.Vector3(
         hip.x,
         hip.y + Math.sin(kneeAngle) * L1,
         hip.z + Math.cos(kneeAngle) * L1
       );
-
-      // Positionnement du genou
       kneeMesh.position.copy(kneePos);
 
-      // Orientation de la cuisse (Hanche -> Genou)
       const thighDir = new THREE.Vector3().subVectors(kneePos, hip);
       thighMesh.position.copy(hip).add(kneePos).multiplyScalar(0.5);
       thighMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), thighDir.normalize());
 
-      // Orientation du mollet (Genou -> Cheville)
       const calfDir = new THREE.Vector3().subVectors(ankle, kneePos);
       calfMesh.position.copy(kneePos).add(ankle).multiplyScalar(0.5);
       calfMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), calfDir.normalize());
 
-      // Chaussure sur la pédale
       footMesh.position.set(ankle.x, ankle.y - 0.01, ankle.z + 0.04);
     }
 
-    // ─── DÉFILEMENT DE LA ROUTE SINUEUSE & ARCHES 3D ─────────────────────────
+    // ─── DÉFILEMENT DE LA ROUTE & ANIMATION DES 150 COUREURS DU PELOTON ──────
     function updateWorld(delta) {
-      const moveDistance = currentSpeed * delta;
+      const effectiveSpeed = Math.max(currentSpeed, 6.5);
+      const moveDistance = effectiveSpeed * delta;
       distanceTraveled += moveDistance;
 
       const segmentLength = 4.0;
       const totalRoadLength = roadSegments.length * segmentLength;
-      const riderCurveX = getRoadCurveX(distanceTraveled);
+      const riderCurveX = getRoadCurveX(distanceTraveled) + smoothLateralLane;
       const riderSlopeX = getRoadCurveDerivative(distanceTraveled);
 
-      // Positionner le cycliste au centre de la route sinueuse
       cyclistGroup.position.x = riderCurveX;
       cyclistGroup.rotation.y = Math.atan(riderSlopeX) * 0.65;
 
       for (let i = 0; i < roadSegments.length; i++) {
         const seg = roadSegments[i];
         seg.position.z -= moveDistance;
-
-        if (seg.position.z < -14.0) {
+        if (seg.position.z < -26.0) {
           seg.position.z += totalRoadLength;
         }
-
         const worldZ = distanceTraveled + seg.position.z;
         seg.position.x = getRoadCurveX(worldZ);
         seg.rotation.y = Math.atan(getRoadCurveDerivative(worldZ));
       }
 
-      // Défilement du portique d'intervalle
-      if (workoutArch && workoutArch.visible) {
+      if (workoutArch) {
         workoutArch.position.z -= moveDistance;
-        if (workoutArch.position.z < -10) {
-          workoutArch.position.z = 120; // Prochain portique à 120m
-        }
+        if (workoutArch.position.z < -15) workoutArch.position.z = 140;
         const archWorldZ = distanceTraveled + workoutArch.position.z;
         workoutArch.position.x = getRoadCurveX(archWorldZ);
         workoutArch.rotation.y = Math.atan(getRoadCurveDerivative(archWorldZ));
       }
 
-      // Animation du Peloton 3D (Équipiers, Adversaires & Coureurs Multijoueur en Ligne)
-      for (let a = 0; a < aiRidersPool.length; a++) {
-        const ai = aiRidersPool[a];
-        const ud = ai.userData;
-        // Interpolation Dead Reckoning 60 FPS fluide vers la cible réseau
-        ud.baseZ += (ud.targetZ - ud.baseZ) * 0.08;
-        ud.xOffset += (ud.targetX - ud.xOffset) * 0.08;
+      // Positionnement dynamique des 150 coureurs autour du joueur selon sa place (smoothPlayerRank : 1..150)
+      // Quand la pente est forte ou que ça attaque, le peloton de 150 coureurs s'étire en file indienne !
+      const stretchFactor = 1.0 + Math.max(0, currentSlope) * 0.14;
+      const playerRowEquivalent = (smoothPlayerRank - 1) / 5.0;
 
-        const zPos = ud.baseZ + Math.sin(distanceTraveled * 0.08 + ud.phase) * 0.45;
+      for (let a = 0; a < peloton150Pool.length; a++) {
+        const ai = peloton150Pool[a];
+        const ud = ai.userData;
+
+        // Si le coureur a un rang plus petit (ex: 1er) que le joueur (ex: 45e), il est DEVANT (+Z)
+        // Si le coureur a un rang plus grand (ex: 120e), il est DERRIÈRE (-Z)
+        const rowDelta = playerRowEquivalent - ud.row;
+        const zBase = rowDelta * 2.35 * stretchFactor;
+        const zWave = Math.sin(distanceTraveled * 0.06 + ud.phase) * 0.55;
+        const zPos = zBase + zWave;
+
+        // Éviter la collision visuelle exacte avec l'avatar du joueur en (0, 0)
+        let xOff = ud.laneX + Math.cos(distanceTraveled * 0.04 + ud.phase) * 0.18;
+        if (Math.abs(zPos) < 1.6 && Math.abs(xOff - smoothLateralLane) < 0.55) {
+          xOff += (xOff >= smoothLateralLane ? 0.65 : -0.65);
+        }
+
         const aiWorldZ = distanceTraveled + zPos;
         const curveX = getRoadCurveX(aiWorldZ);
         const slopeX = getRoadCurveDerivative(aiWorldZ);
 
         ai.position.z = zPos;
-        ai.position.x = curveX + ud.xOffset;
+        ai.position.x = curveX + xOff;
         ai.rotation.y = Math.atan(slopeX) * 0.65;
-        ai.rotation.z = Math.sin(pedalAngle + ud.phase) * 0.025;
+        ai.rotation.z = Math.sin(pedalAngle + ud.phase) * 0.022;
 
-        const wAng = (Math.max(currentSpeed, 6.5) / 2.1) * Math.PI * 2 * delta;
-        ud.rWheel.rotation.x += wAng;
-        ud.fWheel.rotation.x += wAng;
+        // Pédalage rapide des jambes des 150 coureurs
+        const legCycle = Math.sin(pedalAngle + ud.phase);
+        ud.legL.position.y = 0.64 + legCycle * 0.11;
+        ud.legL.rotation.x = legCycle * 0.35;
+        ud.legR.position.y = 0.64 - legCycle * 0.11;
+        ud.legR.rotation.x = -legCycle * 0.35;
       }
 
-      // Nuages
-      for (let c = 0; c < cloudPool.length; c++) {
-        cloudPool[c].position.x += delta * 0.7;
-        if (cloudPool[c].position.x > 95) cloudPool[c].position.x = -95;
+      // Positionnement de la caméra selon le mode actif
+      if (cameraMode === 0) {
+        // MODE 0 : VUE 3/4 HÉROÏQUE ILLUSTRATION (exactement le cadrage de l'aperçu !)
+        const targetCamX = riderCurveX + 1.85;
+        camera.position.x += (targetCamX - camera.position.x) * 0.10;
+        camera.position.y += (1.52 - camera.position.y) * 0.10;
+        camera.position.z += (1.75 - camera.position.z) * 0.10;
+        camera.lookAt(riderCurveX - 0.3, 1.08, -0.2);
+      } else if (cameraMode === 1) {
+        // MODE 1 : VUE IMMERSION ARRIÈRE AU CŒUR DU PELOTON DE 150 COUREURS
+        camera.position.x += (riderCurveX - camera.position.x) * 0.10;
+        camera.position.y += (2.15 - camera.position.y) * 0.10;
+        camera.position.z += (-3.6 - camera.position.z) * 0.10;
+        camera.lookAt(riderCurveX + riderSlopeX * 3.0, 1.25, 6.0);
+      } else {
+        // MODE 2 : VUE HÉLICOPTÈRE TV GRAND TOUR (Vue panoramique des 150 coureurs)
+        camera.position.x += (riderCurveX + 4.5 - camera.position.x) * 0.08;
+        camera.position.y += (7.5 - camera.position.y) * 0.08;
+        camera.position.z += (-9.5 - camera.position.z) * 0.08;
+        camera.lookAt(riderCurveX, 1.0, 8.0);
       }
-
-      // Caméra suiveuse souple derrière le cycliste
-      camera.position.x += (riderCurveX - camera.position.x) * 0.08;
-      camera.lookAt(riderCurveX + riderSlopeX * 3.0, 1.25, 4.5);
     }
 
     function animate() {
       requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.1);
-
       updatePedaling(delta);
       updateWorld(delta);
-
       renderer.render(scene, camera);
     }
 
@@ -826,31 +1024,36 @@
     }
 
     // ─── PONT JAVASCRIPT AVEC FLUTTER ─────────────────────────────────────────
-    window.setRiderTelemetry = function(watts, cadence, speedKmh, slope, gear) {
+    window.setRiderTelemetry = function(watts, cadence, speedKmh, slope, gear, playerRank150, lateralLane) {
       targetWatts = Number(watts) || 0;
       targetCadence = Number(cadence) || 0;
       targetSpeed = (Number(speedKmh) || 0) / 3.6;
       currentSlope = Number(slope) || 0.0;
-      currentGear = Number(gear) || 10;
+      currentGear = Number(gear) || 14;
+      if (typeof playerRank150 === 'number' && playerRank150 >= 1) {
+        targetPlayerRank = Math.max(1, Math.min(150, playerRank150));
+      }
+      if (typeof lateralLane === 'number') {
+        targetLateralLane = lateralLane;
+      }
+    };
+
+    window.setCameraMode = function(modeIndex) {
+      cameraMode = Number(modeIndex) % 3;
     };
 
     window.setEnvironmentTheme = function(themeKey) {
       if (!groundMesh || !scene) return;
       if (themeKey === 'ventoux_lunar') {
-        groundMesh.material.color.setHex(0xe2e8f0); // Calcaire blanc lunaire du Ventoux
-        scene.background.setHex(0x38bdf8);
+        groundMesh.material.color.setHex(0xe2e8f0);
       } else if (themeKey === 'alpine_snow') {
-        groundMesh.material.color.setHex(0xf1f5f9); // Neiges éternelles Galibier / Stelvio
-        scene.background.setHex(0x60a5fa);
+        groundMesh.material.color.setHex(0xf1f5f9);
       } else if (themeKey === 'cobbles_flanders') {
-        groundMesh.material.color.setHex(0x65a30d); // Prairies des Flandres / Roubaix
-        scene.background.setHex(0x94a3b8);
+        groundMesh.material.color.setHex(0x65a30d);
       } else if (themeKey === 'mediterranean') {
-        groundMesh.material.color.setHex(0x84cc16); // Riviera Poggio Sanremo
-        scene.background.setHex(0x0ea5e9);
+        groundMesh.material.color.setHex(0x84cc16);
       } else {
-        groundMesh.material.color.setHex(0x4ade80); // Forêts Ardennaises (Huy, Redoute)
-        scene.background.setHex(0x60a5fa);
+        groundMesh.material.color.setHex(0x4ade80);
       }
     };
 
@@ -858,26 +1061,8 @@
       if (playerBikeFrameMat && bikeHexInt) {
         playerBikeFrameMat.color.setHex(Number(bikeHexInt));
       }
-      if (playerJerseyMat && jerseyHexInt) {
-        playerJerseyMat.color.setHex(Number(jerseyHexInt));
-      }
     };
 
-    // Synchronisation Multijoueur Temps Réel (Phase 6 - Dead Reckoning)
-    window.updateMultiplayerRiders = function(ridersList) {
-      if (!Array.isArray(ridersList) || !aiRidersPool.length) return;
-      for (let i = 0; i < aiRidersPool.length && i < ridersList.length; i++) {
-        const rData = ridersList[i];
-        const ud = aiRidersPool[i].userData;
-        if (typeof rData.zOffset === 'number') ud.targetZ = rData.zOffset;
-        if (typeof rData.xOffset === 'number') ud.targetX = rData.xOffset;
-        if (rData.jersey && ud.jerseyMat) ud.jerseyMat.color.setHex(Number(rData.jersey));
-        if (rData.bike && ud.frameMat) ud.frameMat.color.setHex(Number(rData.bike));
-        if (ud.attackHalo) ud.attackHalo.visible = Boolean(rData.isAttacking);
-      }
-    };
-
-    // Optimisation Mobile & Batterie (Phase 8 - Qualité Graphique WebGL)
     window.setGraphicsQuality = function(presetKey) {
       if (!renderer) return;
       if (presetKey === 'eco') {
